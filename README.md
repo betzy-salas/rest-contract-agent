@@ -17,9 +17,10 @@ Agente de GitHub Copilot que genera contratos **OpenAPI 3** a partir de los **li
 ## Cómo funciona la Etapa 1
 
 ```
-guidelines/sources.yaml          (Gobierno: lista de páginas de Confluence)
+guidelines/sources.yaml          (Gobierno: páginas y carpetas de Confluence)
         │
-        ▼  el agente lee cada página con el MCP de Atlassian (solo lectura)
+        ▼  el agente lee cada página con el MCP de Atlassian (solo lectura);
+        │  de una carpeta, lee todas las páginas que contiene
 guidelines/.cache/<pageId>.md    (copia local de trabajo, no se versiona)
         │
         ▼  npm run guidelines:check   compara contra la versión aprobada
@@ -87,17 +88,20 @@ Edita `guidelines/sources.yaml`:
 
 ```yaml
 sources:
-  - url: https://<sitio>.atlassian.net/wiki/spaces/ARQ/pages/123456/Lineamientos+API+REST
+  - url: https://<sitio>.atlassian.net/wiki/spaces/ARQ/folder/123456
+    topic: Lineamientos API              # carpeta: lee todas las páginas que contiene
+  - url: https://<sitio>.atlassian.net/wiki/spaces/ARQ/pages/234567/Convenciones+de+nombres
     topic: Diseño general de APIs
-    includeChildren: true      # también lee todas sus subpáginas
+    includeChildren: true                # página: también lee todas sus subpáginas
   - url: https://<sitio>.atlassian.net/wiki/spaces/SEG/pages/789012/Seguridad+en+APIs
     topic: Seguridad
 
-precedence: [SEG, ARQ]         # si dos páginas se contradicen, gana SEG
+precedence: [SEG, ARQ]                   # si dos páginas se contradicen, gana SEG
 ```
 
-- Usa el link completo de la barra del navegador (debe contener `/pages/<número>/`). Los links cortos `/wiki/x/...` no sirven.
-- Las páginas pueden estar en espacios distintos.
+- Usa el link completo de la barra del navegador: debe contener `/pages/<número>/` (página) o `/folder/<número>` (carpeta). Los links cortos `/wiki/x/...` no sirven.
+- Una **carpeta** no tiene texto propio. El agente lee todas las páginas que contiene, incluidas subpáginas y subcarpetas, aunque no indiques `includeChildren`. Si la carpeta está vacía o no logra listarla, se detiene y avisa.
+- Puedes mezclar carpetas y páginas sueltas, en espacios distintos.
 - `CODEOWNERS` asegura que cualquier cambio en `guidelines/` pase por revisión de Gobierno.
 
 ## Uso
@@ -132,7 +136,9 @@ npm run guidelines:check     # 0 vigentes · 1 cambios · 2 error
 | Error de autorización al conectar | El sitio de Atlassian restringe la app | Pedir al admin de Atlassian que habilite el Rovo MCP server |
 | "No se pudo leer la página…" | Sin permiso en ese espacio | Pedir acceso de lectura al espacio indicado |
 | `sources.yaml todavía tiene URLs de ejemplo` | Fuentes sin configurar | Gobierno completa `sources.yaml` |
-| `no tienen /pages/<id>/` | Se usó un link corto | Copiar el link completo desde el navegador |
+| `no tienen /pages/<id>/ ni /folder/<id>` | Se usó un link corto | Copiar el link completo desde el navegador |
+| `Carpetas ... sin páginas descargadas` | La carpeta está vacía o el MCP no pudo listar su contenido | Revisar la carpeta en Confluence; si tiene páginas, reportar qué herramienta del MCP falló |
+| Faltan páginas de una carpeta | La herramienta del MCP no recorrió algún nivel | Comparar el conteo `CARPETA` de `guidelines:check` con Confluence y reportar cuál falta y en qué nivel |
 | Marca CAMBIADA y nadie editó la página | Cambió la conversión a Markdown entre ejecuciones | Revisar el resumen; si no hay cambio de reglas, aprobar |
 
 ## Estructura
@@ -142,7 +148,7 @@ npm run guidelines:check     # 0 vigentes · 1 cambios · 2 error
 .github/prompts/sync-guidelines.prompt.md  /sync-guidelines
 .github/CODEOWNERS                         Gobierno aprueba cambios en guidelines/
 .vscode/mcp.json                           servidor MCP de Atlassian (VS Code)
-guidelines/sources.yaml                    páginas de Confluence (Gobierno)
+guidelines/sources.yaml                    páginas y carpetas de Confluence (Gobierno)
 guidelines/sources.lock.json               versión aprobada (la genera guidelines:approve)
 guidelines/.cache/                         descarga local de trabajo (no se versiona)
 scripts/guidelines.mjs                     check / approve

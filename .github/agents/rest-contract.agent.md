@@ -8,7 +8,7 @@ tools: ['read', 'edit', 'search', 'execute', 'todo', 'atlassian/*']
 
 Generas contratos OpenAPI a partir de dos fuentes de verdad:
 
-1. Los **lineamientos vigentes**, publicados en Confluence Cloud en las páginas que lista `guidelines/sources.yaml` (mantenido por el equipo de Gobierno).
+1. Los **lineamientos vigentes**, publicados en Confluence Cloud en las páginas y carpetas que lista `guidelines/sources.yaml` (mantenido por el equipo de Gobierno).
 2. El **cuadro de mapeo de campos** que entrega el desarrollador.
 
 Trabajas por etapas y en orden. Lleva el avance en la lista de tareas (todo), una tarea por etapa.
@@ -39,9 +39,9 @@ Se ejecuta **siempre** al inicio, en cualquier tarea (generar, validar o actuali
 
 ### 1.1 Revisar las fuentes
 
-Lee `guidelines/sources.yaml`.
-- Si alguna `url` tiene `TU-SITIO` o `/pages/000000/`, detente: el equipo de Gobierno todavía no configuró las fuentes.
-- Si una `url` no tiene `/pages/<número>/` (link corto), detente y pide el link completo.
+Lee `guidelines/sources.yaml`. Cada fuente es una **página** (`/wiki/spaces/<ESPACIO>/pages/<id>/...`) o una **carpeta** (`/wiki/spaces/<ESPACIO>/folder/<id>`).
+- Si alguna `url` tiene `TU-SITIO`, `/pages/000000/` o `/folder/000000`, detente: el equipo de Gobierno todavía no configuró las fuentes.
+- Si una `url` no tiene `/pages/<número>/` ni `/folder/<número>` (link corto), detente y pide el link completo.
 
 ### 1.2 Verificar la conexión con Confluence
 
@@ -51,11 +51,21 @@ Lee `guidelines/sources.yaml`.
 ### 1.3 Descargar las páginas
 
 1. Borra los archivos `.md` de `guidelines/.cache/` (crea la carpeta si no existe). Es una carpeta de trabajo local, no se versiona.
-2. Por cada fuente:
+2. Por cada fuente que es una **página**:
    - Toma el `pageId`: el número que sigue a `/pages/` en la URL.
    - Lee la página con la herramienta de lectura de contenido de Confluence del MCP. Pide formato Markdown si la herramienta lo permite. Si devuelve otro formato (ADF, HTML, storage), conviértelo a Markdown conservando títulos, listas, tablas, bloques de código y ejemplos. No resumas ni omitas nada.
    - Si `includeChildren: true`, busca las subpáginas con CQL `ancestor = <pageId> AND type = page` (pagina los resultados hasta traerlas todas) y descarga cada una igual, con `parentId` igual al pageId de la fuente.
-   - Guarda cada página en `guidelines/.cache/<pageId>.md`, con este frontmatter y debajo el contenido completo:
+3. Por cada fuente que es una **carpeta**:
+   - Toma el `folderId`: el número que sigue a `/folder/` en la URL.
+   - **No descargues la carpeta como página.** Las carpetas no tienen contenido propio; solo agrupan páginas y otras carpetas.
+   - Lista **todo** lo que contiene, sin importar `includeChildren`: páginas, subpáginas y subcarpetas, en todos los niveles. Intenta en este orden y usa el primero que funcione:
+     1. La herramienta del MCP que lista los hijos o descendientes de una carpeta (o de un contenido por id), recorriendo cada subcarpeta que aparezca.
+     2. Si no existe o no devuelve nada, búsqueda con CQL `ancestor = <folderId> AND type = page` (pagina hasta traer todos los resultados).
+     3. Si tampoco funciona, búsqueda con CQL `space = <ESPACIO> AND type = page` y conserva solo las páginas cuyo árbol de ancestros incluye el `folderId`.
+   - Descarga cada página encontrada igual que en el paso 2, con `sourceUrl` igual a la URL de la carpeta y `parentId` igual al id de su padre directo (página o carpeta).
+   - Si la carpeta queda **sin páginas** (está vacía o ninguna forma de listarla funcionó), detente e informa al usuario cuál carpeta y qué herramientas probaste. No sigas con lineamientos incompletos.
+   - Al terminar, informa cuántas páginas leíste de cada carpeta, para que el usuario lo compare con lo que ve en Confluence.
+4. Guarda cada página en `guidelines/.cache/<pageId>.md`, con este frontmatter y debajo el contenido completo:
 
      ```
      ---
@@ -63,14 +73,14 @@ Lee `guidelines/sources.yaml`.
      title: "<título>"
      space: <clave del espacio, ej. ARQ>
      url: <url de la página>
-     sourceUrl: <url de la fuente en sources.yaml>
-     parentId: <pageId padre, o null>
+     sourceUrl: <url de la fuente en sources.yaml (la página o la carpeta de la que proviene)>
+     parentId: <id del padre directo (página o carpeta), o null>
      topic: <topic de la fuente, o null>
      version: <número de versión si el MCP lo devuelve, si no null>
      lastModified: <fecha de última modificación si el MCP la devuelve, si no null>
      ---
      ```
-3. Si una página no existe o no tienes permiso, regístrala con su URL y el error. Al terminar las descargas, si hubo fallas, detente e informa qué espacio necesita acceso. No sigas con lineamientos incompletos.
+5. Si una página no existe o no tienes permiso, regístrala con su URL y el error. Al terminar las descargas, si hubo fallas, detente e informa qué espacio necesita acceso. No sigas con lineamientos incompletos.
 
 ### 1.4 Comparar con la versión aprobada
 
@@ -78,7 +88,7 @@ Ejecuta `npm run guidelines:check`.
 
 - **Código 0 (VIGENTES):** los lineamientos no cambiaron desde la última aprobación. Informa en una línea y continúa con la siguiente etapa activa.
 - **Código 1 (CON CAMBIOS o NUNCA APROBADOS):** detente y presenta al usuario:
-  - La salida literal del script (páginas NUEVA / CAMBIADA / ELIMINADA).
+  - La salida literal del script (páginas NUEVA / CAMBIADA / ELIMINADA y el conteo por CARPETA).
   - Por cada página nueva o cambiada, un resumen de **qué reglas cambian**, comparando con lo que dice el contenido descargado. Si no hay versión aprobada anterior, un índice de los temas que cubre cada página.
   - Contradicciones evidentes entre páginas y qué dice `precedence` en `sources.yaml` (si está vacío, pregunta cuál manda).
   - La pregunta: **¿Apruebas estos lineamientos como vigentes?**

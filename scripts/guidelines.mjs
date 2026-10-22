@@ -8,6 +8,10 @@
  *   node scripts/guidelines.mjs check     compara caché vs. lock aprobado (no escribe nada)
  *   node scripts/guidelines.mjs approve   registra la caché actual como versión aprobada (escribe el lock)
  *
+ * Las fuentes de sources.yaml pueden ser páginas (/pages/<id>/) o carpetas (/folder/<id>).
+ * Una carpeta no tiene contenido propio: el agente descarga todas las páginas que contiene
+ * (incluidas las de sus subcarpetas) y cada una lleva en el frontmatter `sourceUrl` con la URL de la carpeta.
+ *
  * Códigos de salida:
  *   check:   0 = vigentes (sin cambios), 1 = hay cambios o nunca se aprobó, 2 = error
  *   approve: 0 = lock escrito, 2 = error
@@ -34,11 +38,16 @@ if (!fs.existsSync(sourcesPath)) salir(2, 'No existe guidelines/sources.yaml');
 const cfg = YAML.parse(fs.readFileSync(sourcesPath, 'utf8')) ?? {};
 const sources = cfg.sources ?? [];
 if (!sources.length) salir(2, 'guidelines/sources.yaml no tiene fuentes');
-const idDeUrl = u => (String(u).match(/\/pages\/(\d+)/) ?? [])[1] ?? null;
-const sinConfigurar = sources.filter(s => /TU-SITIO|\/pages\/0+\//.test(String(s.url)));
+
+// Una URL de Confluence Cloud identifica una página (/pages/<id>/...) o una carpeta (/folder/<id>).
+const fuenteDeUrl = u => {
+  const m = String(u).match(/\/(pages|folder)\/(\d+)/);
+  return m ? { tipo: m[1] === 'pages' ? 'page' : 'folder', id: m[2] } : null;
+};
+const sinConfigurar = sources.filter(s => /TU-SITIO|\/(pages|folder)\/0+(\/|$)/.test(String(s.url)));
 if (sinConfigurar.length) salir(2, 'sources.yaml todavía tiene URLs de ejemplo:\n' + sinConfigurar.map(s => '  - ' + s.url).join('\n'));
-const sinId = sources.filter(s => !idDeUrl(s.url));
-if (sinId.length) salir(2, 'Estas URLs no tienen /pages/<id>/ (usa el link completo, no el link corto):\n' + sinId.map(s => '  - ' + s.url).join('\n'));
+const sinId = sources.filter(s => !fuenteDeUrl(s.url));
+if (sinId.length) salir(2, 'Estas URLs no tienen /pages/<id>/ ni /folder/<id> (usa el link completo, no el link corto):\n' + sinId.map(s => '  - ' + s.url).join('\n'));
 
 // ---------- caché descargada por el agente ----------
 if (!fs.existsSync(cacheDir)) salir(2, 'No existe guidelines/.cache. El agente debe descargar primero las páginas de Confluence');
@@ -53,12 +62,14 @@ for (const archivo of fs.readdirSync(cacheDir).filter(f => f.endsWith('.md')).so
   const cuerpo = m[2].trim();
   if (!cuerpo) salir(2, `${archivo}: la página está vacía; revisa que el MCP haya devuelto el contenido`);
   if (`${meta.pageId}.md` !== archivo) salir(2, `${archivo}: el nombre del archivo debe ser <pageId>.md (${meta.pageId}.md)`);
+  const sourceUrl = meta.sourceUrl ?? meta.url;
+  if (!fuenteDeUrl(sourceUrl)) salir(2, `${archivo}: "sourceUrl" debe ser la URL de la fuente en sources.yaml (con /pages/<id>/ o /folder/<id>)`);
   paginas.push({
     pageId: String(meta.pageId),
     title: String(meta.title),
     space: String(meta.space),
     url: meta.url,
-    sourceUrl: meta.sourceUrl ?? meta.url,
+    sourceUrl,
     parentId: meta.parentId != null ? String(meta.parentId) : null,
     topic: meta.topic ?? null,
     version: meta.version ?? null,
@@ -68,8 +79,18 @@ for (const archivo of fs.readdirSync(cacheDir).filter(f => f.endsWith('.md')).so
   });
 }
 const ids = new Set(paginas.map(p => p.pageId));
-const faltantes = sources.filter(s => !ids.has(idDeUrl(s.url)));
-if (faltantes.length) salir(2, 'Fuentes de sources.yaml que no se descargaron:\n' + faltantes.map(s => '  - ' + s.url).join('\n'));
+
+// Cada fuente debe haber producido algo: una página, su propio .md; una carpeta, al menos una página con sourceUrl de esa carpeta.
+const claveFuente = u => { const f = fuenteDeUrl(u); return f ? `${f.tipo}:${f.id}` : null; };
+const paginasPorFuente = new Map();
+for (const p of paginas) {
+  const k = claveFuente(p.sourceUrl);
+  paginasPorFuente.set(k, (paginasPorFuente.get(k) ?? 0) + 1);
+}
+const paginasFaltantes = sources.filter(s => { const f = fuenteDeUrl(s.url); return f.tipo === 'page' && !ids.has(f.id); });
+const carpetasVacias = sources.filter(s => { const f = fuenteDeUrl(s.url); return f.tipo === 'folder' && !paginasPorFuente.get(claveFuente(s.url)); });
+if (paginasFaltantes.length) salir(2, 'Páginas de sources.yaml que no se descargaron:\n' + paginasFaltantes.map(s => '  - ' + s.url).join('\n'));
+if (carpetasVacias.length) salir(2, 'Carpetas de sources.yaml sin páginas descargadas (la carpeta está vacía o el agente no pudo listar su contenido):\n' + carpetasVacias.map(s => '  - ' + s.url).join('\n'));
 paginas.sort((a, b) => a.space.localeCompare(b.space) || a.title.localeCompare(b.title));
 
 // ---------- comparación con la versión aprobada ----------
@@ -90,6 +111,8 @@ if (modo === 'check') {
   if (!aprobado) console.log('Lineamientos: NUNCA APROBADOS · aún no existe guidelines/sources.lock.json');
   else console.log(`Lineamientos: ${hayCambios ? 'CON CAMBIOS' : 'VIGENTES'} · aprobados el ${aprobado.approvedAt}${aprobado.approvedBy ? ' por ' + aprobado.approvedBy : ''}`);
   console.log(`  ${paginas.length} páginas · ${nuevas.length} nuevas · ${cambiadas.length} cambiadas · ${eliminadas.length} eliminadas · ${iguales.length} sin cambios`);
+  // Por carpeta, cuántas páginas se leyeron: sirve para comparar con lo que se ve en Confluence.
+  for (const s of sources.filter(s => fuenteDeUrl(s.url).tipo === 'folder')) console.log(`  CARPETA    ${s.url} · ${paginasPorFuente.get(claveFuente(s.url))} páginas`);
   for (const p of nuevas) console.log(`  NUEVA      ${etiqueta(p)}`);
   for (const p of cambiadas) console.log(`  CAMBIADA   ${etiqueta(p)}${p.versionAprobada != null ? ' · aprobada: v' + p.versionAprobada : ''}`);
   for (const p of eliminadas) console.log(`  ELIMINADA  ${etiqueta(p)}`);
