@@ -1,0 +1,24 @@
+# Fuentes oficiales de los lineamientos de APIs (Confluence Cloud).
+# Mantenido por el equipo de Gobierno (ver .github/CODEOWNERS).
+#
+# Agrega una entrada por cada página de Confluence con lineamientos o guías vigentes.
+#
+#   url              Link completo de la página, copiado desde la barra del navegador:
+#                    https://<sitio>.atlassian.net/wiki/spaces/<ESPACIO>/pages/<ID>/<Título>
+#                    No uses links cortos (/wiki/x/...): no traen el ID de la página.
+#   topic            Qué cubre la página. Opcional, ayuda a clasificar las reglas.
+#   includeChildren  true para leer también todas sus subpáginas. Por defecto false.
+#
+#   precedence       Claves de espacio en orden de prioridad para cuando dos páginas se contradicen
+#                    (gana la primera). Si se deja vacío, el agente reporta la contradicción y pregunta.
+
+sources:
+  - url: https://TU-SITIO.atlassian.net/wiki/spaces/ARQ/pages/000000/Lineamientos+API+REST
+    topic: Diseño general de APIs
+    includeChildren: true
+
+  - url: https://TU-SITIO.atlassian.net/wiki/spaces/SEG/pages/000000/Seguridad+en+APIs
+    topic: Seguridad
+    includeChildren: false
+
+precedence: []
