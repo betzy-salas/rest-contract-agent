@@ -157,6 +157,7 @@ npm run guidelines:approve   # registra la versión aprobada en sources.lock.jso
 | `sources.yaml todavía tiene URLs de ejemplo` | Fuentes sin configurar | Gobierno completa `sources.yaml` |
 | `no tienen la forma https://<sitio>/wiki/.../pages/<id>/ o /folder/<id>` | Se usó un link corto | Copiar el link completo desde el navegador |
 | `no contiene páginas` | La carpeta está vacía | Revisar la carpeta en Confluence |
+| `OMITIDAS N páginas sin texto` | Páginas que solo agrupan subpáginas, sin cuerpo | No es un error. Confirmar en Confluence que no tienen lineamientos; si alguna sí tiene, reportarla |
 | Faltan páginas de una carpeta | Son de otro tipo (pizarras, bases de datos) o están en un espacio sin permiso | Comparar el conteo `CARPETA` con Confluence; el script solo descarga páginas |
 | Marca CAMBIADA y nadie editó la página | Cambió la conversión a Markdown entre ejecuciones | Revisar el resumen; si no hay cambio de reglas, aprobar |
 

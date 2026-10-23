@@ -50,7 +50,7 @@ Ejecuta `npm run guidelines:sync`. El script lee `sources.yaml`, descarga por la
 
 Lee la salida completa del script:
 
-- **Código 0:** descarga completa. Repite al usuario la línea de cada fuente (`PÁGINA` o `CARPETA` con el número de páginas y subcarpetas) para que pueda compararla con lo que ve en Confluence. Continúa con 1.3.
+- **Código 0:** descarga completa. Repite al usuario la línea de cada fuente (`PÁGINA` o `CARPETA` con el número de páginas y subcarpetas) para que pueda compararla con lo que ve en Confluence. Si hay un bloque `OMITIDAS`, muéstrale la lista completa de esas páginas sin texto y pídele que confirme que son páginas que solo agrupan subpáginas y no contienen lineamientos; si alguna sí debería tener contenido, detente e infórmalo, porque el formato de esa página no se pudo convertir. Continúa con 1.3.
 - **Código 2:** detente y explica el error con las palabras del script. Casos típicos:
   - `Sin credenciales`: falta el archivo `.env`. Indica al usuario que siga la sección "Conectar Confluence" del README. No le pidas la cookie ni el token por el chat.
   - `fallo de red`: Node no logró conectarse (proxy corporativo o certificado TLS de la empresa). Indica al usuario la pista que da el propio mensaje y la sección "Red corporativa" del README. No intentes resolverlo cambiando código ni desactivando TLS.
@@ -58,7 +58,6 @@ Lee la salida completa del script:
   - `403`: la cuenta no tiene lectura en ese espacio. Informa qué espacio necesita acceso.
   - `404`: el id de la URL no existe. Pide a Gobierno que revise `sources.yaml`.
   - `no contiene páginas`: la carpeta está vacía o no se pudo listar. Informa cuál.
-  - `el contenido llegó vacío`: la página no tiene texto. Informa cuál.
 
   No sigas con lineamientos incompletos.
 

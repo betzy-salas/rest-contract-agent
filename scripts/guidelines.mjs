@@ -87,9 +87,9 @@ for (const p of paginas) {
   const k = claveFuente(p.sourceUrl);
   paginasPorFuente.set(k, (paginasPorFuente.get(k) ?? 0) + 1);
 }
-const paginasFaltantes = sources.filter(s => { const f = fuenteDeUrl(s.url); return f.tipo === 'page' && !ids.has(f.id); });
+const paginasFaltantes = sources.filter(s => { const f = fuenteDeUrl(s.url); return f.tipo === 'page' && !ids.has(f.id) && !paginasPorFuente.get(claveFuente(s.url)); });
 const carpetasVacias = sources.filter(s => { const f = fuenteDeUrl(s.url); return f.tipo === 'folder' && !paginasPorFuente.get(claveFuente(s.url)); });
-if (paginasFaltantes.length) salir(2, 'Páginas de sources.yaml que no se descargaron:\n' + paginasFaltantes.map(s => '  - ' + s.url).join('\n'));
+if (paginasFaltantes.length) salir(2, 'Páginas de sources.yaml que no se descargaron (ni ellas ni ninguna subpágina):\n' + paginasFaltantes.map(s => '  - ' + s.url).join('\n'));
 if (carpetasVacias.length) salir(2, 'Carpetas de sources.yaml sin páginas descargadas (la carpeta está vacía o el agente no pudo listar su contenido):\n' + carpetasVacias.map(s => '  - ' + s.url).join('\n'));
 paginas.sort((a, b) => a.space.localeCompare(b.space) || a.title.localeCompare(b.title));
 

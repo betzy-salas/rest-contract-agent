@@ -14,6 +14,9 @@
  *   HTTPS_PROXY / HTTP_PROXY / NO_PROXY       proxy de salida (el navegador lo usa solo; Node necesita que se lo digan)
  *   CONFLUENCE_CA_CERT                        ruta a un .pem con el certificado raíz de la empresa, si la red inspecciona TLS
  *
+ * Las páginas sin texto (páginas "contenedor" que solo agrupan subpáginas) se omiten y se listan como OMITIDA;
+ * no son un error, pero el usuario debe confirmar que de verdad no tienen lineamientos.
+ *
  * Códigos de salida: 0 = descarga completa · 2 = error (credenciales, permisos, carpeta vacía, página ilegible)
  */
 import fs from 'node:fs';
@@ -142,15 +145,20 @@ for (const f of fs.readdirSync(cacheDir)) if (f.endsWith('.md')) fs.unlinkSync(p
 
 const escritas = new Set();
 const fallas = [];
+const omitidas = [];
 async function guardarPagina({ origen, id, sourceUrl, topic, parentId }) {
   if (escritas.has(id)) return true;
   let p;
   try { p = await api(origen, `/wiki/api/v2/pages/${id}?body-format=export_view`); }
   catch (e) { fallas.push(`página ${id}: ${e.message}`); return false; }
-  const cuerpo = aMarkdown(p.body?.export_view?.value ?? '');
-  if (!cuerpo) { fallas.push(`página ${id} "${p.title}": el contenido llegó vacío`); return false; }
+  let cuerpo = aMarkdown(p.body?.export_view?.value ?? '');
+  if (!cuerpo) { // algunas macros solo renderizan en "view"; segundo intento antes de darla por vacía
+    try { cuerpo = aMarkdown((await api(origen, `/wiki/api/v2/pages/${id}?body-format=view`)).body?.view?.value ?? ''); }
+    catch { /* nos quedamos con el resultado del primer intento */ }
+  }
   const space = await claveEspacio(origen, p.spaceId);
   const url = p._links?.webui ? `${origen}/wiki${p._links.webui}` : `${origen}/wiki/spaces/${space}/pages/${id}`;
+  if (!cuerpo) { omitidas.push({ id, title: p.title, space, url }); return false; }
   const front = {
     pageId: String(p.id), title: p.title, space, url, sourceUrl,
     parentId: parentId ?? (p.parentId != null ? String(p.parentId) : null),
@@ -195,5 +203,10 @@ for (const s of sources) {
     }
   } catch (e) { fallas.push(`${f.tipo === 'page' ? 'página' : 'carpeta'} ${f.id}: ${e.message}`); }
 }
+if (omitidas.length) {
+  console.log(`OMITIDAS   ${omitidas.length} páginas sin texto (suelen ser páginas que solo agrupan subpáginas; confirma en Confluence que no tienen lineamientos):`);
+  for (const o of omitidas) console.log(`  - [${o.space}] ${o.title} (id ${o.id}) ${o.url}`);
+}
 console.log(`Descargadas ${escritas.size} páginas en guidelines/.cache`);
+if (!escritas.size && !fallas.length) fallas.push('ninguna fuente produjo páginas con texto');
 if (fallas.length) salir('La descarga quedó incompleta. No sigas con lineamientos incompletos:\n' + fallas.map(x => '  - ' + x).join('\n'));
