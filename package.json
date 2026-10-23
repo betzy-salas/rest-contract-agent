@@ -1,12 +1,15 @@
 {
   "name": "rest-contract-agent",
   "version": "1.0.0",
-  "description": "Agente de Copilot que genera contratos OpenAPI desde lineamientos vigentes en Confluence y un cuadro de mapeo",
+  "description": "Agente de Copilot que genera contratos OpenAPI desde lineamientos vigentes en Confluence (API REST) y un cuadro de mapeo",
   "scripts": {
+    "guidelines:sync": "node scripts/sync.mjs",
     "guidelines:check": "node scripts/guidelines.mjs check",
     "guidelines:approve": "node scripts/guidelines.mjs approve"
   },
   "dependencies": {
+    "turndown": "^7.2.0",
+    "turndown-plugin-gfm": "^1.0.2",
     "yaml": "^2.9.1"
   },
   "type": "module",
