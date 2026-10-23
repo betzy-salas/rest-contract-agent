@@ -23,8 +23,21 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import tls from 'node:tls';
+import { spawnSync } from 'node:child_process';
 import YAML from 'yaml';
 import { fetch, EnvHttpProxyAgent } from 'undici';
+
+// Confiar en los certificados del sistema operativo (donde la empresa instala el suyo), igual que el navegador.
+// Node solo los carga con el flag --use-system-ca, así que si está disponible y no está activo nos relanzamos con él.
+// Se desactiva con CONFLUENCE_NO_SYSTEM_CA=1.
+const flagSistema = '--use-system-ca';
+const flagActivo = process.execArgv.includes(flagSistema) || (process.env.NODE_OPTIONS ?? '').includes(flagSistema);
+if (!flagActivo && !process.env.CONFLUENCE_NO_SYSTEM_CA && process.allowedNodeEnvironmentFlags.has(flagSistema)) {
+  const r = spawnSync(process.execPath, [flagSistema, ...process.execArgv, fileURLToPath(import.meta.url), ...process.argv.slice(2)],
+    { stdio: 'inherit', env: { ...process.env, CONFLUENCE_NO_SYSTEM_CA: '1', CONFLUENCE_SYSTEM_CA_ACTIVO: '1' } });
+  process.exit(r.status ?? 1);
+}
+const usaCaSistema = flagActivo || process.env.CONFLUENCE_SYSTEM_CA_ACTIVO === '1';
 import TurndownService from 'turndown';
 import { gfm } from 'turndown-plugin-gfm';
 
@@ -89,7 +102,7 @@ function fallaDeRed(e, url) {
     : /ECONNREFUSED|ETIMEDOUT|ECONNRESET|EHOSTUNREACH|ENETUNREACH|UND_ERR_CONNECT_TIMEOUT|UND_ERR_SOCKET/.test(code)
       ? 'No se pudo conectar con el servidor. Si el navegador sí entra, probablemente la red exige un proxy: define HTTPS_PROXY en .env (ver README, "Red corporativa").'
       : /CERT|SELF_SIGNED|UNABLE_TO_VERIFY|UNABLE_TO_GET_ISSUER|DEPTH_ZERO|ERR_TLS/.test(code)
-        ? 'El certificado TLS no es de confianza para Node: la red de la empresa inspecciona el tráfico. Exporta el certificado raíz corporativo y define CONFLUENCE_CA_CERT=/ruta/al/certificado.pem en .env (ver README, "Red corporativa").'
+        ? `El certificado TLS no es de confianza para Node: la red de la empresa inspecciona el tráfico. ${usaCaSistema ? 'Ya se usan los certificados del sistema y no basta: pide a soporte' : 'Tu Node no soporta --use-system-ca (actualiza a 22.15 o superior) o pide a soporte'} el certificado raíz corporativo y define CONFLUENCE_CA_CERT=/ruta/al/certificado.pem en .env (ver README, "Red corporativa").`
         : 'Fallo de red sin clasificar. Revisa conexión, proxy y certificados (ver README, "Red corporativa").';
   return `fallo de red${code ? ` [${code}]` : ''} al pedir ${url}: ${detalle}. ${pista}`;
 }
@@ -185,7 +198,7 @@ async function recorrer({ origen, tipo, id, sourceUrl, topic }, contador) {
 }
 
 console.log(`Autenticación: ${modoAuth}`);
-console.log(`Red: ${proxy ? 'proxy ' + describirProxy() : 'sin proxy'}${caPath ? ' · certificado adicional ' + caPath : ''}`);
+console.log(`Red: ${proxy ? 'proxy ' + describirProxy() : 'sin proxy'} · certificados ${usaCaSistema ? 'del sistema + Node' : 'solo de Node'}${caPath ? ' + ' + caPath : ''}`);
 for (const s of sources) {
   const f = fuenteDeUrl(s.url);
   const comun = { origen: f.origen, id: f.id, sourceUrl: s.url, topic: s.topic ?? null };
