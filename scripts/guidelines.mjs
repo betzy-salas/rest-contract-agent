@@ -7,6 +7,7 @@
  *
  *   node scripts/guidelines.mjs check     compara caché vs. lock aprobado (no escribe nada)
  *   node scripts/guidelines.mjs approve   registra la caché actual como versión aprobada (escribe el lock)
+ *   node scripts/guidelines.mjs list      imprime el índice de páginas descargadas (espacio, título, id, fuente), sin contenido
  *
  * Las fuentes de sources.yaml pueden ser páginas (/pages/<id>/) o carpetas (/folder/<id>).
  * Una carpeta no tiene contenido propio: el agente descarga todas las páginas que contiene
@@ -31,7 +32,7 @@ const lockPath = path.join(dir, 'sources.lock.json');
 const modo = process.argv[2];
 
 function salir(code, msg) { console.error(`ERROR: ${msg}`); process.exit(code); }
-if (!['check', 'approve'].includes(modo)) salir(2, 'Uso: node scripts/guidelines.mjs <check|approve>');
+if (!['check', 'approve', 'list'].includes(modo)) salir(2, 'Uso: node scripts/guidelines.mjs <check|approve|list>');
 
 // ---------- fuentes ----------
 if (!fs.existsSync(sourcesPath)) salir(2, 'No existe guidelines/sources.yaml');
@@ -92,6 +93,28 @@ const carpetasVacias = sources.filter(s => { const f = fuenteDeUrl(s.url); retur
 if (paginasFaltantes.length) salir(2, 'Páginas de sources.yaml que no se descargaron (ni ellas ni ninguna subpágina):\n' + paginasFaltantes.map(s => '  - ' + s.url).join('\n'));
 if (carpetasVacias.length) salir(2, 'Carpetas de sources.yaml sin páginas descargadas (la carpeta está vacía o el agente no pudo listar su contenido):\n' + carpetasVacias.map(s => '  - ' + s.url).join('\n'));
 paginas.sort((a, b) => a.space.localeCompare(b.space) || a.title.localeCompare(b.title));
+
+if (modo === 'list') {
+  // Índice sin contenido: sirve para ver qué temas cubren los lineamientos sin exponer su texto.
+  const porFuente = new Map();
+  for (const p of paginas) { const k = p.sourceUrl; if (!porFuente.has(k)) porFuente.set(k, []); porFuente.get(k).push(p); }
+  console.log(`${paginas.length} páginas en ${porFuente.size} fuentes`);
+  for (const [fuente, lista] of porFuente) {
+    const s = sources.find(s => s.url === fuente);
+    console.log(`\nFUENTE ${fuente}${s?.topic ? ` · topic: ${s.topic}` : ''} · ${lista.length} páginas`);
+    // orden por jerarquía: primero las que cuelgan directo de la fuente, luego sus hijas (indentadas)
+    const porPadre = new Map();
+    for (const p of lista) { const k = p.parentId ?? ''; if (!porPadre.has(k)) porPadre.set(k, []); porPadre.get(k).push(p); }
+    const ids = new Set(lista.map(p => p.pageId));
+    const raices = lista.filter(p => !p.parentId || !ids.has(p.parentId));
+    const imprimir = (p, nivel) => {
+      console.log(`${'  '.repeat(nivel + 1)}- [${p.space}] ${p.title} (id ${p.pageId}${p.version != null ? ', v' + p.version : ''})`);
+      for (const h of porPadre.get(p.pageId) ?? []) imprimir(h, nivel + 1);
+    };
+    for (const r of raices) imprimir(r, 0);
+  }
+  process.exit(0);
+}
 
 // ---------- comparación con la versión aprobada ----------
 const aprobado = fs.existsSync(lockPath) ? JSON.parse(fs.readFileSync(lockPath, 'utf8')) : null;

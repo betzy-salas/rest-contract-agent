@@ -4,6 +4,7 @@
   "description": "Agente de Copilot que genera contratos OpenAPI desde lineamientos vigentes en Confluence (API REST) y un cuadro de mapeo",
   "scripts": {
     "guidelines:sync": "node scripts/sync.mjs",
+    "guidelines:list": "node scripts/guidelines.mjs list",
     "guidelines:check": "node scripts/guidelines.mjs check",
     "guidelines:approve": "node scripts/guidelines.mjs approve"
   },

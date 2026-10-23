@@ -141,6 +141,7 @@ También puedes hacerlo desde la terminal, sin el agente:
 
 ```bash
 npm run guidelines:sync      # descarga a guidelines/.cache · 0 ok · 2 error
+npm run guidelines:list      # índice de páginas descargadas (espacio, título, id), sin contenido
 npm run guidelines:check     # 0 vigentes · 1 cambios · 2 error
 npm run guidelines:approve   # registra la versión aprobada en sources.lock.json
 ```
