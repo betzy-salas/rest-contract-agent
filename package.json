@@ -10,6 +10,7 @@
   "dependencies": {
     "turndown": "^7.2.0",
     "turndown-plugin-gfm": "^1.0.2",
+    "undici": "^7.16.0",
     "yaml": "^2.9.1"
   },
   "type": "module",

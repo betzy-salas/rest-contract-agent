@@ -53,6 +53,7 @@ Lee la salida completa del script:
 - **Código 0:** descarga completa. Repite al usuario la línea de cada fuente (`PÁGINA` o `CARPETA` con el número de páginas y subcarpetas) para que pueda compararla con lo que ve en Confluence. Continúa con 1.3.
 - **Código 2:** detente y explica el error con las palabras del script. Casos típicos:
   - `Sin credenciales`: falta el archivo `.env`. Indica al usuario que siga la sección "Conectar Confluence" del README. No le pidas la cookie ni el token por el chat.
+  - `fallo de red`: Node no logró conectarse (proxy corporativo o certificado TLS de la empresa). Indica al usuario la pista que da el propio mensaje y la sección "Red corporativa" del README. No intentes resolverlo cambiando código ni desactivando TLS.
   - `401` o `Respuesta no JSON`: la cookie de sesión expiró. Indica al usuario que copie una nueva desde el navegador al `.env` (README) y vuelve a ejecutar.
   - `403`: la cuenta no tiene lectura en ese espacio. Informa qué espacio necesita acceso.
   - `404`: el id de la URL no existe. Pide a Gobierno que revise `sources.yaml`.

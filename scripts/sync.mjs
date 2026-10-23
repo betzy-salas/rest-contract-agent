@@ -10,13 +10,18 @@
  * Credenciales: se leen de variables de entorno o de un archivo .env en la raíz del repo (ignorado por git).
  *   CONFLUENCE_EMAIL + CONFLUENCE_API_TOKEN   token de API (recomendado; sirve para una cuenta de servicio)
  *   CONFLUENCE_COOKIE                         cabecera Cookie de tu sesión del navegador (temporal: expira)
+ * Red corporativa (opcionales, también en .env):
+ *   HTTPS_PROXY / HTTP_PROXY / NO_PROXY       proxy de salida (el navegador lo usa solo; Node necesita que se lo digan)
+ *   CONFLUENCE_CA_CERT                        ruta a un .pem con el certificado raíz de la empresa, si la red inspecciona TLS
  *
  * Códigos de salida: 0 = descarga completa · 2 = error (credenciales, permisos, carpeta vacía, página ilegible)
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import tls from 'node:tls';
 import YAML from 'yaml';
+import { fetch, EnvHttpProxyAgent } from 'undici';
 import TurndownService from 'turndown';
 import { gfm } from 'turndown-plugin-gfm';
 
@@ -63,10 +68,35 @@ if (sinConfigurar.length) salir('sources.yaml todavía tiene URLs de ejemplo:\n'
 const sinId = sources.filter(s => !fuenteDeUrl(s.url));
 if (sinId.length) salir('Estas URLs no tienen la forma https://<sitio>/wiki/.../pages/<id>/ o /folder/<id>:\n' + sinId.map(s => '  - ' + s.url).join('\n'));
 
+// ---------- red: proxy y certificado corporativo ----------
+const caPath = process.env.CONFLUENCE_CA_CERT;
+if (caPath && !fs.existsSync(caPath)) salir(`CONFLUENCE_CA_CERT apunta a un archivo que no existe: ${caPath}`);
+const tlsOpts = caPath ? { ca: [...tls.rootCertificates, fs.readFileSync(caPath, 'utf8')] } : {};
+const dispatcher = new EnvHttpProxyAgent({ connect: tlsOpts, requestTls: tlsOpts, proxyTls: tlsOpts });
+const proxy = process.env.https_proxy ?? process.env.HTTPS_PROXY ?? process.env.http_proxy ?? process.env.HTTP_PROXY ?? null;
+const describirProxy = () => { try { const u = new URL(proxy); return `${u.hostname}:${u.port || (u.protocol === 'https:' ? 443 : 80)}`; } catch { return proxy; } };
+
+// Traduce un "fetch failed" de Node a una causa accionable.
+function fallaDeRed(e, url) {
+  const causas = []; for (let c = e; c; c = c.cause) causas.push(c);
+  const code = causas.map(c => c.code).find(Boolean) ?? '';
+  const detalle = causas.map(c => c.message).filter(Boolean).join(' <- ');
+  const pista = /ENOTFOUND|EAI_AGAIN/.test(code)
+    ? 'No se pudo resolver el nombre del servidor. En la red de la empresa suele faltar el proxy: define HTTPS_PROXY en .env (ver README, "Red corporativa").'
+    : /ECONNREFUSED|ETIMEDOUT|ECONNRESET|EHOSTUNREACH|ENETUNREACH|UND_ERR_CONNECT_TIMEOUT|UND_ERR_SOCKET/.test(code)
+      ? 'No se pudo conectar con el servidor. Si el navegador sí entra, probablemente la red exige un proxy: define HTTPS_PROXY en .env (ver README, "Red corporativa").'
+      : /CERT|SELF_SIGNED|UNABLE_TO_VERIFY|UNABLE_TO_GET_ISSUER|DEPTH_ZERO|ERR_TLS/.test(code)
+        ? 'El certificado TLS no es de confianza para Node: la red de la empresa inspecciona el tráfico. Exporta el certificado raíz corporativo y define CONFLUENCE_CA_CERT=/ruta/al/certificado.pem en .env (ver README, "Red corporativa").'
+        : 'Fallo de red sin clasificar. Revisa conexión, proxy y certificados (ver README, "Red corporativa").';
+  return `fallo de red${code ? ` [${code}]` : ''} al pedir ${url}: ${detalle}. ${pista}`;
+}
+
 // ---------- API ----------
 async function api(origen, ruta) {
   const url = new URL(ruta, origen);
-  const res = await fetch(url, { headers: { Accept: 'application/json', ...auth } });
+  let res;
+  try { res = await fetch(url, { headers: { Accept: 'application/json', ...auth }, dispatcher }); }
+  catch (e) { throw new Error(fallaDeRed(e, url)); }
   if (res.status === 401) throw new Error(`401 sin autenticar en ${url}. ${modoAuth === 'cookie de sesión del navegador' ? 'La cookie expiró o no es de este sitio: copia una nueva desde el navegador.' : 'Revisa el email y el token de API.'}`);
   if (res.status === 403) throw new Error(`403 sin permiso para ${url}. Pide acceso de lectura al espacio.`);
   if (res.status === 404) throw new Error(`404 no existe ${url}. Revisa el id en sources.yaml.`);
@@ -147,6 +177,7 @@ async function recorrer({ origen, tipo, id, sourceUrl, topic }, contador) {
 }
 
 console.log(`Autenticación: ${modoAuth}`);
+console.log(`Red: ${proxy ? 'proxy ' + describirProxy() : 'sin proxy'}${caPath ? ' · certificado adicional ' + caPath : ''}`);
 for (const s of sources) {
   const f = fuenteDeUrl(s.url);
   const comun = { origen: f.origen, id: f.id, sourceUrl: s.url, topic: s.topic ?? null };

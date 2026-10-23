@@ -86,6 +86,17 @@ La cookie da acceso a Confluence como tú. Trátala como una contraseña: no la 
 
 **Comprobar:** en la terminal, `npm run guidelines:sync` debe terminar con `Descargadas N páginas`.
 
+### Red corporativa
+
+Si `sync` termina con `fallo de red` aunque el navegador sí abra Confluence, la red de la empresa está en medio. El navegador toma el proxy y los certificados del sistema; Node no, hay que decírselo en el mismo `.env`. El mensaje de error dice cuál de los dos casos es:
+
+| El error menciona | Qué pasa | Qué poner en `.env` |
+|---|---|---|
+| `ENOTFOUND`, `ECONNREFUSED`, `ETIMEDOUT`, `ECONNRESET` | La salida a internet pasa por un proxy | `HTTPS_PROXY=http://proxy.empresa.com:8080`, la misma dirección que usa el navegador (ver abajo cómo conocerla) |
+| `CERT`, `SELF_SIGNED`, `UNABLE_TO_VERIFY`, `UNABLE_TO_GET_ISSUER` | La red inspecciona TLS con un certificado propio | Primero prueba `node --use-system-ca scripts/sync.mjs` (Node 22.15 o superior): usa los certificados ya instalados en el sistema, donde la empresa suele poner el suyo. Si funciona, deja `export NODE_OPTIONS=--use-system-ca` en tu shell. Si no, `CONFLUENCE_CA_CERT=/ruta/al/certificado-raiz.pem`: el certificado lo entrega soporte; en macOS se exporta desde Acceso a Llaveros y en Windows desde `certmgr.msc` (Entidades de certificación raíz de confianza, exportar como Base64 .cer y renombrar a .pem) |
+
+Pueden hacer falta los dos a la vez. Para conocer el proxy: en macOS, Ajustes del Sistema → Red → Detalles → Proxies; en Windows, `netsh winhttp show proxy` o Configuración → Red → Proxy. Nunca desactives la verificación TLS con `NODE_TLS_REJECT_UNAUTHORIZED=0`: expondría la cookie a cualquiera en la red.
+
 ## Configurar las fuentes (equipo de Gobierno)
 
 Edita `guidelines/sources.yaml`:
@@ -139,6 +150,7 @@ npm run guidelines:approve   # registra la versión aprobada en sources.lock.jso
 | Síntoma | Causa | Solución |
 |---|---|---|
 | `Sin credenciales` | No existe `.env` o está vacío | Seguir "Conectar Confluence" |
+| `fallo de red [...]` | Proxy corporativo o certificado de inspección TLS | Ver "Red corporativa" |
 | `401 sin autenticar` o `Respuesta no JSON` | La cookie expiró, o el token es incorrecto | Copiar una cookie nueva desde el navegador, o revisar email y token |
 | `403 sin permiso` | Sin lectura en ese espacio | Pedir acceso de lectura al espacio indicado |
 | `404 no existe` | El id de la URL en `sources.yaml` es incorrecto | Gobierno corrige el link |
