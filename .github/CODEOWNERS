@@ -1,4 +1,4 @@
-# Los lineamientos y sus reglas solo cambian con aprobación del equipo de Gobierno.
+# Opcional: si un equipo de Gobierno revisa los cambios en los lineamientos y sus reglas, decláralo aquí.
 # Reemplaza @tu-org/gobierno-apis por el equipo real de GitHub.
 /guidelines/                 @tu-org/gobierno-apis
 /.github/agents/             @tu-org/gobierno-apis

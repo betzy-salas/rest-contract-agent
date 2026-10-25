@@ -14,6 +14,18 @@ Agente de GitHub Copilot que genera contratos **OpenAPI 3** a partir de los **li
 | 6 | Revisión semántica independiente | ⏳ |
 | 7 | Entregar contrato y trazabilidad | ⏳ |
 
+## Quién hace qué
+
+**Tú, una sola vez:** instalas el proyecto, conectas Confluence y escribes en `guidelines/sources.yaml` las páginas o carpetas con los lineamientos. Está paso a paso en "Puesta en marcha".
+
+**Tú, cada vez que quieras algo:** escribes un prompt en el chat de Copilot (`/sync-guidelines`, `/extract-rules`, o más adelante "genera el contrato para este mapeo"). Nada más. No ejecutas scripts a mano.
+
+**El agente, en cada tarea:** descarga los lineamientos, detecta si cambiaron, actualiza las reglas afectadas, valida y te muestra un resumen. Si algo falla te dice qué pasó y qué hacer; si una página no le aplica a contratos REST, te lo dice con la razón. Nunca modifica nada en Confluence ni lee tus credenciales.
+
+**Tú, después de cada ejecución:** lees el resumen. Confirmas que las páginas excluidas no deberían estar, revisas las reglas que caen en "otros", y si algo no cuadra se lo dices al agente en el chat.
+
+Los comandos `npm run ...` que aparecen en este documento existen para que el agente los ejecute y para que tú puedas inspeccionar el estado desde la terminal si quieres. No forman parte del uso normal.
+
 ## Cómo funcionan las Etapas 1 y 2
 
 ```
@@ -44,12 +56,22 @@ Esto se ejecuta **al inicio de cada tarea**. Si una página de Confluence cambi�
 | Confluence Cloud | Cuenta de Atlassian con acceso de lectura a **todos** los espacios listados en `sources.yaml`, y una credencial para la API REST (ver "Conectar Confluence"). |
 | Node.js | 18 o superior. |
 
-## Instalación
+## Puesta en marcha, paso a paso (una sola vez)
 
-1. Copia el contenido de esta carpeta en la raíz del repositorio (`.github/` debe quedar en la raíz).
-2. Ejecuta `npm install`.
-3. En `.github/CODEOWNERS`, reemplaza `@tu-org/gobierno-apis` por el equipo de Gobierno en GitHub.
-4. El equipo de Gobierno completa `guidelines/sources.yaml` con los links reales (ver más abajo).
+1. **Clona el repo e instala dependencias.** En la terminal, dentro de la carpeta del proyecto:
+   ```
+   npm install
+   ```
+2. **Conecta Confluence.** Crea el archivo `.env` con tus credenciales siguiendo la sección siguiente. Ese archivo nunca se sube al repo.
+3. **Indica dónde están los lineamientos.** Edita `guidelines/sources.yaml` con las URLs reales de tus carpetas o páginas de Confluence (ver "Configurar las fuentes").
+4. **Comprueba la conexión.** En la terminal:
+   ```
+   npm run guidelines:sync
+   ```
+   Debe terminar con `Descargadas N páginas`. Si falla, el mensaje te dice la causa; la tabla de "Problemas frecuentes" la traduce a una acción.
+5. **Primera extracción de reglas.** Abre el proyecto en el IDE, chat de Copilot en modo **Agent**, y escribe `/extract-rules`. La primera vez procesa todas las páginas y tarda; el agente avisa el avance. Al terminar revisa el resumen: páginas fuera de alcance y reglas en "otros".
+
+A partir de aquí todo se hace desde el chat de Copilot.
 
 ## Conectar Confluence (una vez por desarrollador)
 
@@ -64,7 +86,7 @@ CONFLUENCE_EMAIL=tu.correo@empresa.com
 CONFLUENCE_API_TOKEN=...
 ```
 
-Se crea en https://id.atlassian.com/manage-profile/security/api-tokens. Si la organización bloquea la creación de tokens, pide a Gobierno que solicite una **cuenta de servicio** con token al administrador de Atlassian: el mismo script sirve sin cambios y el token puede vivir en un secret de GitHub para sincronizar desde CI.
+Se crea en https://id.atlassian.com/manage-profile/security/api-tokens. Si la organización bloquea la creación de tokens, la alternativa correcta a futuro es pedir al administrador de Atlassian una **cuenta de servicio** con token: el mismo script sirve sin cambios.
 
 **Opción 2 (temporal): cookie de tu sesión del navegador.**
 
@@ -95,7 +117,7 @@ Si `sync` termina con `fallo de red` aunque el navegador sí abra Confluence, la
 
 Pueden hacer falta los dos a la vez. Para conocer el proxy: en macOS, Ajustes del Sistema → Red → Detalles → Proxies; en Windows, `netsh winhttp show proxy` o Configuración → Red → Proxy. Nunca desactives la verificación TLS con `NODE_TLS_REJECT_UNAUTHORIZED=0`: expondría la cookie a cualquiera en la red.
 
-## Configurar las fuentes (equipo de Gobierno)
+## Configurar las fuentes
 
 Edita `guidelines/sources.yaml`:
 
@@ -115,11 +137,12 @@ precedence: [SEG, ARQ]                   # si dos páginas se contradicen, gana 
 - Usa el link completo de la barra del navegador: debe contener `/pages/<número>/` (página) o `/folder/<número>` (carpeta). Los links cortos `/wiki/x/...` no sirven.
 - Una **carpeta** no tiene texto propio. El agente lee todas las páginas que contiene, incluidas subpáginas y subcarpetas, aunque no indiques `includeChildren`. Si la carpeta está vacía o no logra listarla, se detiene y avisa.
 - Puedes mezclar carpetas y páginas sueltas, en espacios distintos.
-- `CODEOWNERS` asegura que cualquier cambio en `guidelines/` pase por revisión de Gobierno.
+- `precedence` es opcional: si dos páginas se contradicen y está vacío, el agente reporta la contradicción y pregunta.
+- `.github/CODEOWNERS` es opcional. Sirve si más adelante un equipo de Gobierno quiere revisar los cambios en `guidelines/` mediante pull requests; mientras trabajes sola, puedes ignorarlo o borrarlo.
 
 ## Uso
 
-En el chat de Copilot, modo **Agent**:
+Todo se hace desde el chat de Copilot, modo **Agent**. Escribes uno de estos prompts y el agente hace el resto:
 
 | Prompt | Qué hace |
 |---|---|
@@ -130,7 +153,7 @@ La primera extracción procesa todas las páginas y puede tardar; el agente avis
 
 Al final el agente muestra el resumen de reglas por categoría y la lista de páginas fuera de alcance. Revisa esa lista: si alguna página excluida sí contiene reglas de contrato, pídele que la reclasifique.
 
-Desde la terminal, sin el agente:
+Para inspeccionar el estado desde la terminal, sin el agente (opcional):
 
 ```bash
 npm run guidelines:sync      # descarga a guidelines/.cache · 0 ok · 2 error
@@ -164,8 +187,8 @@ Las reglas y el catálogo **sí se versionan**: son el resultado valioso del pro
 | `fallo de red [...]` | Proxy corporativo o certificado de inspección TLS | Ver "Red corporativa" |
 | `401 sin autenticar` o `Respuesta no JSON` | La cookie expiró, o el token es incorrecto | Copiar una cookie nueva desde el navegador, o revisar email y token |
 | `403 sin permiso` | Sin lectura en ese espacio | Pedir acceso de lectura al espacio indicado |
-| `404 no existe` | El id de la URL en `sources.yaml` es incorrecto | Gobierno corrige el link |
-| `sources.yaml todavía tiene URLs de ejemplo` | Fuentes sin configurar | Gobierno completa `sources.yaml` |
+| `404 no existe` | El id de la URL en `sources.yaml` es incorrecto | Corregir el link en `sources.yaml` |
+| `sources.yaml todavía tiene URLs de ejemplo` | Fuentes sin configurar | Completar `sources.yaml` (ver "Configurar las fuentes") |
 | `no tienen la forma https://<sitio>/wiki/.../pages/<id>/ o /folder/<id>` | Se usó un link corto | Copiar el link completo desde el navegador |
 | `no contiene páginas` | La carpeta está vacía | Revisar la carpeta en Confluence |
 | `OMITIDAS N páginas sin texto` | Páginas que solo agrupan subpáginas, sin cuerpo | No es un error. Confirmar en Confluence que no tienen lineamientos; si alguna sí tiene, reportarla |
@@ -178,8 +201,8 @@ Las reglas y el catálogo **sí se versionan**: son el resultado valioso del pro
 .github/agents/rest-contract.agent.md      agente (Etapas 1 y 2 activas)
 .github/prompts/sync-guidelines.prompt.md  /sync-guidelines
 .github/prompts/extract-rules.prompt.md    /extract-rules
-.github/CODEOWNERS                         Gobierno aprueba cambios en guidelines/
-guidelines/sources.yaml                    páginas y carpetas de Confluence (Gobierno)
+.github/CODEOWNERS                         opcional: revisión de cambios en guidelines/ por un equipo
+guidelines/sources.yaml                    páginas y carpetas de Confluence con los lineamientos
 guidelines/sources.lock.json               última versión procesada (la genera guidelines:approve)
 guidelines/rules/<categoria>.yaml          reglas verificables por categoría
 guidelines/rules/catalogo-esquemas.yaml    esquemas canónicos de dominio
