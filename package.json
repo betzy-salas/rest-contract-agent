@@ -6,7 +6,13 @@
     "guidelines:sync": "node scripts/sync.mjs",
     "guidelines:list": "node scripts/guidelines.mjs list",
     "guidelines:check": "node scripts/guidelines.mjs check",
-    "guidelines:approve": "node scripts/guidelines.mjs approve"
+    "guidelines:approve": "node scripts/guidelines.mjs approve",
+    "rules:status": "node scripts/rules.mjs status",
+    "rules:classify": "node scripts/rules.mjs classify",
+    "rules:forget": "node scripts/rules.mjs forget",
+    "rules:done": "node scripts/rules.mjs done",
+    "rules:validate": "node scripts/rules.mjs validate",
+    "rules:summary": "node scripts/rules.mjs summary"
   },
   "dependencies": {
     "turndown": "^7.2.0",

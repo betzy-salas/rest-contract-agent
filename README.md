@@ -2,40 +2,38 @@
 
 Agente de GitHub Copilot que genera contratos **OpenAPI 3** a partir de los **lineamientos vigentes en Confluence** y de un **cuadro de mapeo de campos**.
 
-> **Estado: Etapa 1 de 7.** Por ahora el agente obtiene los lineamientos de Confluence, detecta si cambiaron y pide aprobación. Las siguientes etapas se agregan una a una.
+> **Estado: Etapas 1 y 2 de 7.** El agente descarga los lineamientos de Confluence, detecta cambios y los convierte en reglas verificables. Las siguientes etapas se agregan una a una.
 
 | Etapa | Qué hace | Estado |
 |---|---|---|
-| 1 | Obtener y verificar los lineamientos vigentes | ✅ |
-| 2 | Traducir los lineamientos a reglas verificables | ⏳ |
+| 1 | Obtener los lineamientos vigentes y detectar cambios | ✅ |
+| 2 | Traducir los lineamientos a reglas verificables | ✅ |
 | 3 | Leer y revisar el mapeo | ⏳ |
 | 4 | Generar el contrato | ⏳ |
 | 5 | Validar y corregir en ciclo | ⏳ |
 | 6 | Revisión semántica independiente | ⏳ |
 | 7 | Entregar contrato y trazabilidad | ⏳ |
 
-## Cómo funciona la Etapa 1
+## Cómo funcionan las Etapas 1 y 2
 
 ```
-guidelines/sources.yaml          (Gobierno: páginas y carpetas de Confluence)
+guidelines/sources.yaml          páginas y carpetas de Confluence
         │
-        ▼  npm run guidelines:sync   descarga por la API REST de Confluence (solo lectura);
-        │                             de una carpeta, todas las páginas que contiene
-guidelines/.cache/<pageId>.md    (copia local de trabajo, no se versiona)
+        ▼  npm run guidelines:sync      descarga por la API REST de Confluence (solo lectura);
+        │                               de una carpeta, todas las páginas que contiene
+guidelines/.cache/<pageId>.md    copia local de trabajo, no se versiona
         │
-        ▼  npm run guidelines:check   compara contra la versión aprobada
+        ▼  npm run guidelines:check     ¿cambió algo desde la última versión procesada?
         │
-   ┌────┴─────────────┐
-VIGENTES          CON CAMBIOS / NUNCA APROBADOS
-   │                  │  el agente muestra qué cambió y pregunta
-   │                  ▼
-   │           ¿Apruebas?  ── sí ──► npm run guidelines:approve ──► guidelines/sources.lock.json
-   │                  │                                              (commit + PR revisado por Gobierno)
-   ▼                  no ──► se detiene, no genera nada
-continúa
+        ▼  Etapa 2: el agente clasifica cada página y extrae sus reglas
+guidelines/rules/<categoria>.yaml        reglas verificables (id, texto fiel, alcance, cómo verificar, página fuente)
+guidelines/rules/catalogo-esquemas.yaml  esquemas canónicos de dominio para reutilizar
+guidelines/rules/pages.yaml              registro: categoría de cada página y versión de la que se extrajo
+        │
+        ▼  npm run rules:validate · npm run guidelines:approve   registra la versión procesada
 ```
 
-Esto se ejecuta **al inicio de cada tarea**, así nunca se genera un contrato con lineamientos desactualizados ni con cambios que nadie revisó.
+Esto se ejecuta **al inicio de cada tarea**. Si una página de Confluence cambió, solo se reextraen las reglas de esa página; si nada cambió, no se relee nada. Las páginas que no aplican a contratos REST (GraphQL, eventos, procesos) se marcan fuera de alcance con una razón, y el agente te muestra esa lista para que nada se descarte sin que lo sepas.
 
 ## Requisitos
 
@@ -121,30 +119,42 @@ precedence: [SEG, ARQ]                   # si dos páginas se contradicen, gana 
 
 ## Uso
 
-En el chat de Copilot, modo **Agent**, ejecuta:
+En el chat de Copilot, modo **Agent**:
 
-```
-/sync-guidelines
-```
+| Prompt | Qué hace |
+|---|---|
+| `/sync-guidelines` | Solo Etapa 1: descarga y reporta si los lineamientos cambiaron |
+| `/extract-rules` | Etapas 1 y 2: descarga y actualiza las reglas en `guidelines/rules/` |
 
-Resultados posibles:
+La primera extracción procesa todas las páginas y puede tardar; el agente avisa el avance por lotes. Las siguientes solo tocan las páginas que cambiaron.
 
-| Estado | Qué significa | Qué hacer |
-|---|---|---|
-| **VIGENTES** | Nada cambió desde la última aprobación | Nada |
-| **NUNCA APROBADOS** | Primera ejecución | Revisar el índice que muestra el agente y aprobar |
-| **CON CAMBIOS** | Hay páginas nuevas, modificadas o eliminadas | Revisar el resumen de cambios y aprobar o rechazar |
+Al final el agente muestra el resumen de reglas por categoría y la lista de páginas fuera de alcance. Revisa esa lista: si alguna página excluida sí contiene reglas de contrato, pídele que la reclasifique.
 
-Al aprobar se actualiza `guidelines/sources.lock.json`. Haz commit en un PR: Gobierno lo revisa y, una vez fusionado, esa es la versión vigente para todo el equipo.
-
-También puedes hacerlo desde la terminal, sin el agente:
+Desde la terminal, sin el agente:
 
 ```bash
 npm run guidelines:sync      # descarga a guidelines/.cache · 0 ok · 2 error
 npm run guidelines:list      # índice de páginas descargadas (espacio, título, id), sin contenido
 npm run guidelines:check     # 0 vigentes · 1 cambios · 2 error
-npm run guidelines:approve   # registra la versión aprobada en sources.lock.json
+npm run rules:status         # qué páginas faltan por clasificar, extraer o reextraer · 0 al día · 1 pendientes
+npm run rules:validate       # estructura, ids y fuentes de las reglas · 0 ok · 2 errores
+npm run rules:summary        # reglas por categoría y verificación; páginas fuera de alcance
 ```
+
+### Formato de una regla
+
+```yaml
+- id: URI-012                      # prefijo de categoría + correlativo, único
+  regla: "Los nombres de recursos van en plural, en inglés y en kebab-case."   # fiel a la página
+  alcance: [interna, externa]      # a qué APIs aplica
+  aplica_a: paths                  # paths | operations | parameters | headers | request-body | responses | schemas | security | info | naming | general
+  verificacion: automatica         # automatica · asistida · manual
+  como_verificar: "Cada segmento de path que no sea parámetro está en plural, en inglés, minúsculas y guiones."
+  ejemplo: "/customers/{customerId}/accounts"
+  fuente: { pageId: "123456", titulo: "Nomenclatura de Recursos", url: "https://..." }
+```
+
+Las reglas y el catálogo **sí se versionan**: son el resultado valioso del proceso y lo que usarán las etapas de generación y verificación.
 
 ## Problemas frecuentes
 
@@ -165,13 +175,19 @@ npm run guidelines:approve   # registra la versión aprobada en sources.lock.jso
 ## Estructura
 
 ```
-.github/agents/rest-contract.agent.md      agente (Etapa 1 activa)
+.github/agents/rest-contract.agent.md      agente (Etapas 1 y 2 activas)
 .github/prompts/sync-guidelines.prompt.md  /sync-guidelines
+.github/prompts/extract-rules.prompt.md    /extract-rules
 .github/CODEOWNERS                         Gobierno aprueba cambios en guidelines/
 guidelines/sources.yaml                    páginas y carpetas de Confluence (Gobierno)
-guidelines/sources.lock.json               versión aprobada (la genera guidelines:approve)
+guidelines/sources.lock.json               última versión procesada (la genera guidelines:approve)
+guidelines/rules/<categoria>.yaml          reglas verificables por categoría
+guidelines/rules/catalogo-esquemas.yaml    esquemas canónicos de dominio
+guidelines/rules/pages.yaml                registro de clasificación y versión de cada página
 guidelines/.cache/                         descarga local de trabajo (no se versiona)
 .env.example                               plantilla de credenciales (copiar a .env, que no se versiona)
 scripts/sync.mjs                           descarga desde la API REST de Confluence
-scripts/guidelines.mjs                     check / approve
+scripts/guidelines.mjs                     list / check / approve
+scripts/rules.mjs                          status / classify / forget / done / validate / summary
+scripts/lib.mjs                            utilidades compartidas
 ```
