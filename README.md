@@ -170,7 +170,7 @@ Las reglas y el catálogo **sí se versionan**: son el resultado valioso del pro
 | `no contiene páginas` | La carpeta está vacía | Revisar la carpeta en Confluence |
 | `OMITIDAS N páginas sin texto` | Páginas que solo agrupan subpáginas, sin cuerpo | No es un error. Confirmar en Confluence que no tienen lineamientos; si alguna sí tiene, reportarla |
 | Faltan páginas de una carpeta | Son de otro tipo (pizarras, bases de datos) o están en un espacio sin permiso | Comparar el conteo `CARPETA` con Confluence; el script solo descarga páginas |
-| Marca CAMBIADA y nadie editó la página | Cambió la conversión a Markdown entre ejecuciones | Revisar el resumen; si no hay cambio de reglas, aprobar |
+| Marca CAMBIADA y nadie editó la página | Cambió la conversión a Markdown entre ejecuciones | La Etapa 2 reextrae la página; si las reglas quedan iguales, no hay nada que hacer |
 
 ## Estructura
 
