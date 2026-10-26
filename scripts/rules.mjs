@@ -71,21 +71,28 @@ const leerReglas = archivo => {
 };
 
 // ---------- heurística de cobertura (la usan status y coverage) ----------
-// Cuenta frases con lenguaje normativo y filas de tabla del texto, y las compara con las reglas extraídas de esa página.
-// No mide calidad, mide huecos: una página con 20 enunciados normativos y 2 reglas casi seguro quedó resumida.
-const NORMATIVO = /\b(debe[nr]?[áa]?n?|deber[áa]n?|no debe[n]?|obligatori[oa]s?|siempre|nunca|prohibid[oa]s?|(no )?se permite[n]?|(no )?est[áa] permitid[oa]|recomendad[oa]s?|se recomienda|por defecto|requerid[oa]s?|mandatori[oa]s?|necesari[oa]s?|únicamente|solo se|solamente|must|should|shall|required|mandatory)\b/i;
+// Cuenta señales de regla en el texto y las compara con las reglas y campos extraídos de esa página.
+// Las reglas rara vez dicen "debe": también son convenciones en presente ("se nombra en plural"), formatos,
+// ejemplos marcados correcto/incorrecto, tablas y ejemplos JSON. No mide calidad, mide huecos.
+const OBLIGACION = /\b(debe[nr]?[áa]?n?|deber[áa]n?|no debe[n]?|obligatori[oa]s?|siempre|nunca|prohibid[oa]s?|(no )?se permite[n]?|(no )?est[áa] permitid[oa]|recomendad[oa]s?|se recomienda|por defecto|requerid[oa]s?|mandatori[oa]s?|necesari[oa]s?|únicamente|solo se|solamente|evitar|no usar|no utilizar|must|should|shall|required|mandatory)\b/i;
+const CONVENCION = /\b(se (usa|usan|utiliza|utilizan|nombra|nombran|define|definen|escribe|escriben|representa|representan|expresa|expresan|envía|envían|devuelve|devuelven|incluye|incluyen|indica|indican|compone|componen)|va[n]? en|en (plural|singular|inglés|minúsculas?|mayúsculas?)|camelCase|kebab-case|snake_case|PascalCase|UPPER_?CASE|ISO ?8601|RFC ?\d+|UTC|formato|patrón|convención|estructura|prefijo|sufijo|nomenclatura|sintaxis)\b/i;
+const EJEMPLO = /(✅|❌|✔|✖|\bcorrecto\b|\bincorrecto\b|\bbien\b|\bmal\b|\bno recomendad[oa]\b|\bejemplo\b|\bej\.|\be\.g\.)/i;
 function medirNormativo(cuerpo) {
-  let enunciados = 0, filas = 0, tablas = 0, enCodigo = false, enTabla = false;
+  let enunciados = 0, filas = 0, tablas = 0, ejemplos = 0, lineasContenido = 0, enCodigo = false, enTabla = false;
   const claves = new Set();
   for (const l of cuerpo.split('\n')) {
-    if (/^\s*```/.test(l)) { enCodigo = !enCodigo; continue; }
+    if (/^\s*```/.test(l)) { enCodigo = !enCodigo; if (enCodigo) ejemplos++; continue; }
     if (enCodigo) { for (const m of l.matchAll(/"([A-Za-z_][\w.-]*)"\s*:/g)) claves.add(m[1]); continue; } // claves de ejemplos JSON
+    if (!l.trim()) continue;
     if (/^\s*\|/.test(l)) { if (!enTabla) { enTabla = true; tablas++; } if (!/^\s*\|[\s:|-]*\|\s*$/.test(l)) filas++; continue; }
     enTabla = false;
-    for (const frase of l.split(/(?<=[.;!?])\s+/)) if (NORMATIVO.test(frase)) enunciados++;
+    if (/^\s*#/.test(l)) continue; // encabezados
+    lineasContenido++;
+    if (EJEMPLO.test(l)) ejemplos++;
+    for (const frase of l.split(/(?<=[.;!?])\s+/)) if (OBLIGACION.test(frase) || CONVENCION.test(frase)) enunciados++;
   }
   // una fila de encabezado por tabla; las filas restantes suelen ser un campo o una regla cada una
-  return { enunciados, filas: Math.max(0, filas - tablas), clavesJson: claves.size };
+  return { enunciados, filas: Math.max(0, filas - tablas), clavesJson: claves.size, ejemplos, lineasContenido };
 }
 function todasLasReglas() { const out = []; for (const a of archivosReglas()) for (const r of leerReglas(a)) out.push({ ...r, _archivo: a }); return out; }
 const leerEsquemas = () => { const d = leerYaml(path.join(dirReglas, ESQUEMAS), []); if (!Array.isArray(d)) salir(2, `${ESQUEMAS}: debe ser una lista`); return d; };
@@ -100,12 +107,15 @@ function cobertura() {
     if (!r?.category || r.category === 'esquemas-de-dominio') continue;
     if (r.coverageAccepted) { aceptadas.push({ p, r }); continue; }
     const m = medirNormativo(p.cuerpo ?? '');
-    if (r.category === 'fuera-de-alcance') { if (m.enunciados >= 3) excluidasConNormas.push({ p, m, r }); continue; }
+    if (r.category === 'fuera-de-alcance') { if (m.enunciados + m.filas >= 4) excluidasConNormas.push({ p, m, r }); continue; }
     const reglas = reglasPorPagina.get(p.pageId) ?? 0, campos = camposPorPagina.get(p.pageId) ?? 0;
-    // lo esperado: una regla por enunciado normativo, y un campo o regla por fila de tabla o por clave de ejemplo JSON
-    const esperado = m.enunciados + Math.max(m.filas, m.clavesJson);
+    // lo esperado: una regla por enunciado (obligación o convención), un campo o regla por fila de tabla o clave de ejemplo JSON,
+    // y al menos una regla por cada dos ejemplos (un ejemplo ilustra una convención)
+    const esperado = m.enunciados + Math.max(m.filas, m.clavesJson) + Math.floor(m.ejemplos / 2);
     const cubierto = reglas + campos;
-    if ((cubierto === 0 && esperado > 0) || (esperado >= 3 && cubierto < esperado * 0.8)) revisar.push({ p, m, r, reglas, campos, esperado, hueco: esperado - cubierto });
+    // densidad: una página con mucho contenido y casi nada extraído es sospechosa aunque no use palabras normativas
+    const pocaDensidad = m.lineasContenido >= 25 && cubierto < Math.ceil(m.lineasContenido / 12);
+    if ((cubierto === 0 && esperado > 0) || (esperado >= 3 && cubierto < esperado * 0.8) || pocaDensidad) revisar.push({ p, m, r, reglas, campos, esperado: Math.max(esperado, pocaDensidad ? Math.ceil(m.lineasContenido / 12) : 0), hueco: Math.max(esperado, Math.ceil(m.lineasContenido / 12)) - cubierto, pocaDensidad });
     else ok.push(p);
   }
   revisar.sort((a, b) => b.hueco - a.hueco);
@@ -125,11 +135,11 @@ function calidadVerificacion() {
 const imprimirCobertura = ({ revisar, excluidasConNormas }) => {
   if (revisar.length) {
     console.log('\nREVISAR COBERTURA · relee la página completa. Obligaciones en prosa o en filas de tabla → reglas; tablas de campos (nombre, tipo, obligatorio) o ejemplos JSON → esquema normativo con TODOS sus campos. Si la página está bien así: npm run rules:accept -- <pageId> --razon "..."');
-    for (const x of revisar) console.log(`  [${x.p.space}] ${x.p.title} (id ${x.p.pageId}) · ${x.r.category} · ${x.reglas} reglas + ${x.campos} campos de esquema vs ${x.m.enunciados} enunciados normativos, ${x.m.filas} filas de tabla, ${x.m.clavesJson} claves en ejemplos JSON`);
+    for (const x of revisar) console.log(`  [${x.p.space}] ${x.p.title} (id ${x.p.pageId}) · ${x.r.category} · ${x.reglas} reglas + ${x.campos} campos de esquema vs ${x.m.enunciados} enunciados (obligaciones o convenciones), ${x.m.filas} filas de tabla, ${x.m.clavesJson} claves JSON, ${x.m.ejemplos} ejemplos, ${x.m.lineasContenido} líneas de contenido${x.pocaDensidad ? ' · POCA DENSIDAD: mucho texto y casi nada extraído' : ''}`);
   }
   if (excluidasConNormas.length) {
     console.log('\nEXCLUIDAS CON LENGUAJE NORMATIVO · relee y decide: rules:classify a una categoría y extrae, o rules:accept con la razón precisa de por qué no aplica:');
-    for (const x of excluidasConNormas) console.log(`  [${x.p.space}] ${x.p.title} (id ${x.p.pageId}) · ${x.m.enunciados} enunciados normativos · razón actual: ${x.r.reason}`);
+    for (const x of excluidasConNormas) console.log(`  [${x.p.space}] ${x.p.title} (id ${x.p.pageId}) · ${x.m.enunciados} enunciados y ${x.m.filas} filas de tabla · razón actual: ${x.r.reason}`);
   }
 };
 
