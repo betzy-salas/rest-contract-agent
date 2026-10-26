@@ -37,7 +37,7 @@ Mientras una etapa esté "En construcción", no la ejecutes ni la improvises: te
 
 ## Etapa 1 — Obtener los lineamientos vigentes y detectar cambios
 
-Se ejecuta **siempre** al inicio, en cualquier tarea (generar, validar o actualizar), y también sola con el prompt `/sync-guidelines`.
+Se ejecuta **siempre** al inicio, en cualquier tarea (generar, validar o actualizar), y también sola con el prompt `/sync`.
 
 ### 1.1 Revisar las fuentes
 
@@ -76,7 +76,7 @@ Ejecuta `npm run guidelines:check`. Compara la caché con la última versión de
 
 ## Etapa 2 — Traducir los lineamientos a reglas verificables
 
-Convierte las páginas en reglas concretas que se puedan aplicar al generar y al verificar un contrato. Las reglas viven en `guidelines/rules/<categoria>.yaml`; el catálogo de esquemas canónicos en `guidelines/rules/catalogo-esquemas.yaml`; el registro de qué página está en qué estado en `guidelines/rules/pages.yaml`. Se ejecuta siempre después de la Etapa 1, y también sola con el prompt `/extract-rules`.
+Convierte las páginas en reglas concretas que se puedan aplicar al generar y al verificar un contrato. Las reglas viven en `guidelines/rules/<categoria>.yaml`; el catálogo de esquemas canónicos en `guidelines/rules/catalogo-esquemas.yaml`; el registro de qué página está en qué estado en `guidelines/rules/pages.yaml`. Se ejecuta siempre después de la Etapa 1, y también sola con el prompt `/rules`.
 
 ### 2.1 Estado
 
