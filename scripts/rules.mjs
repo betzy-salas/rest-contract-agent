@@ -16,6 +16,7 @@
  *   node scripts/rules.mjs summary                         resumen por categoría, alcance y verificación; páginas excluidas
  *   node scripts/rules.mjs coverage                        por página: reglas extraídas vs. enunciados normativos del texto;
  *                                                          señala subextracción y páginas excluidas que contienen normas
+ *   node scripts/rules.mjs coverage --detalle              tabla con las métricas de TODAS las páginas en alcance (solo números)
  *
  * Códigos de salida: status 0 = todo al día, 1 = hay pendientes · validate 0 = ok, 2 = errores · resto 0 ok, 2 error
  */
@@ -78,21 +79,22 @@ const OBLIGACION = /\b(debe[nr]?[áa]?n?|deber[áa]n?|no debe[n]?|obligatori[oa]
 const CONVENCION = /\b(se (usa|usan|utiliza|utilizan|nombra|nombran|define|definen|escribe|escriben|representa|representan|expresa|expresan|envía|envían|devuelve|devuelven|incluye|incluyen|indica|indican|compone|componen)|va[n]? en|en (plural|singular|inglés|minúsculas?|mayúsculas?)|camelCase|kebab-case|snake_case|PascalCase|UPPER_?CASE|ISO ?8601|RFC ?\d+|UTC|formato|patrón|convención|estructura|prefijo|sufijo|nomenclatura|sintaxis)\b/i;
 const EJEMPLO = /(✅|❌|✔|✖|\bcorrecto\b|\bincorrecto\b|\bbien\b|\bmal\b|\bno recomendad[oa]\b|\bejemplo\b|\bej\.|\be\.g\.)/i;
 function medirNormativo(cuerpo) {
-  let enunciados = 0, filas = 0, tablas = 0, ejemplos = 0, lineasContenido = 0, enCodigo = false, enTabla = false;
+  let enunciados = 0, filas = 0, tablas = 0, ejemplos = 0, lineasContenido = 0, palabras = 0, bloquesCodigo = 0, enCodigo = false, enTabla = false;
   const claves = new Set();
   for (const l of cuerpo.split('\n')) {
-    if (/^\s*```/.test(l)) { enCodigo = !enCodigo; if (enCodigo) ejemplos++; continue; }
+    if (/^\s*```/.test(l)) { enCodigo = !enCodigo; if (enCodigo) { ejemplos++; bloquesCodigo++; } continue; }
     if (enCodigo) { for (const m of l.matchAll(/"([A-Za-z_][\w.-]*)"\s*:/g)) claves.add(m[1]); continue; } // claves de ejemplos JSON
     if (!l.trim()) continue;
     if (/^\s*\|/.test(l)) { if (!enTabla) { enTabla = true; tablas++; } if (!/^\s*\|[\s:|-]*\|\s*$/.test(l)) filas++; continue; }
     enTabla = false;
     if (/^\s*#/.test(l)) continue; // encabezados
     lineasContenido++;
+    palabras += l.trim().split(/\s+/).length;
     if (EJEMPLO.test(l)) ejemplos++;
     for (const frase of l.split(/(?<=[.;!?])\s+/)) if (OBLIGACION.test(frase) || CONVENCION.test(frase)) enunciados++;
   }
   // una fila de encabezado por tabla; las filas restantes suelen ser un campo o una regla cada una
-  return { enunciados, filas: Math.max(0, filas - tablas), clavesJson: claves.size, ejemplos, lineasContenido };
+  return { enunciados, filas: Math.max(0, filas - tablas), tablas, clavesJson: claves.size, ejemplos, bloquesCodigo, lineasContenido, palabras };
 }
 function todasLasReglas() { const out = []; for (const a of archivosReglas()) for (const r of leerReglas(a)) out.push({ ...r, _archivo: a }); return out; }
 const leerEsquemas = () => { const d = leerYaml(path.join(dirReglas, ESQUEMAS), []); if (!Array.isArray(d)) salir(2, `${ESQUEMAS}: debe ser una lista`); return d; };
@@ -356,6 +358,27 @@ if (modo === 'summary') {
 
 // ---------- coverage ----------
 if (modo === 'coverage') {
+  if (args.includes('--detalle')) {
+    // Métricas por página, sin texto: para diagnosticar por qué el detector señala o no.
+    const reglasPorPagina = new Map(), camposPorPagina = new Map();
+    for (const r of todasLasReglas()) { const k = String(r?.fuente?.pageId); reglasPorPagina.set(k, (reglasPorPagina.get(k) ?? 0) + 1); }
+    for (const e of leerEsquemas()) { const k = String(e?.fuente?.pageId); camposPorPagina.set(k, (camposPorPagina.get(k) ?? 0) + camposDe(e).length); }
+    const filasTabla = [];
+    for (const p of paginas) {
+      const r = registro.pages[p.pageId];
+      if (!r?.category || ['fuera-de-alcance', 'esquemas-de-dominio'].includes(r.category)) continue;
+      const m = medirNormativo(p.cuerpo ?? '');
+      filasTabla.push({ id: p.pageId, titulo: p.title.slice(0, 38), cat: r.category.slice(0, 12), reglas: reglasPorPagina.get(p.pageId) ?? 0, campos: camposPorPagina.get(p.pageId) ?? 0, ...m, acept: r.coverageAccepted ? 'sí' : '' });
+    }
+    filasTabla.sort((a, b) => (b.palabras) - (a.palabras));
+    const cols = ['id', 'cat', 'reglas', 'campos', 'lineas', 'palabras', 'tablas', 'filas', 'codigo', 'clavesJson', 'ejemplos', 'enunciados', 'acept', 'titulo'];
+    const fila = x => [x.id, x.cat, x.reglas, x.campos, x.lineasContenido, x.palabras, x.tablas, x.filas, x.bloquesCodigo, x.clavesJson, x.ejemplos, x.enunciados, x.acept, x.titulo];
+    const anchos = cols.map((c, i) => Math.max(c.length, ...filasTabla.map(x => String(fila(x)[i]).length)));
+    console.log(cols.map((c, i) => c.padEnd(anchos[i])).join('  '));
+    for (const x of filasTabla) console.log(fila(x).map((v, i) => String(v).padEnd(anchos[i])).join('  '));
+    console.log(`\n${filasTabla.length} páginas en categorías de reglas · ${filasTabla.reduce((n, x) => n + x.reglas, 0)} reglas · ${filasTabla.reduce((n, x) => n + x.campos, 0)} campos de esquema`);
+    process.exit(0);
+  }
   const cob = cobertura();
   const ver = calidadVerificacion();
   console.log(`Cobertura: ${cob.revisar.length} páginas con posible subextracción · ${cob.excluidasConNormas.length} excluidas con lenguaje normativo · ${cob.aceptadas.length} aceptadas con razón · ${cob.ok.length} sin señal · ${ver.automaticas} de ${ver.total} reglas automáticas`);
