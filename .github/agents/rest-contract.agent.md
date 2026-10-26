@@ -84,8 +84,8 @@ Convierte las páginas en reglas concretas que se puedan aplicar al generar y al
 
 Ejecuta `npm run rules:status`.
 
-- **Código 0 (AL DÍA):** todas las páginas están clasificadas y sus reglas corresponden a la versión actual. Informa en una línea, ejecuta `npm run guidelines:approve` si la Etapa 1 reportó cambios, y termina la Etapa 2.
-- **Código 1 (PENDIENTES):** la salida lista las páginas SIN CLASIFICAR, POR EXTRAER, CAMBIADAS y ELIMINADAS. Trabájalas en ese orden con los pasos siguientes. Avisa al usuario cuántas páginas vas a procesar antes de empezar; si son más de 20, hazlo por lotes y ve informando el avance.
+- **Código 0 (AL DÍA):** todas las páginas están clasificadas, sus reglas corresponden a la versión actual y el control de calidad no señala nada. Informa en una línea, ejecuta `npm run guidelines:approve` si la Etapa 1 reportó cambios, y pasa a 2.6.
+- **Código 1 (PENDIENTES):** la salida lista lo que falta. Primero las secciones SIN CLASIFICAR, POR EXTRAER, CAMBIADAS y ELIMINADAS (pasos 2.2 a 2.4). Cuando la extracción está completa, el comando pasa a mostrar la sección CALIDAD (paso 2.5). Vuelve a ejecutar `npm run rules:status` después de cada paso: la Etapa 2 no termina hasta que devuelva código 0 o hasta que lo que señale esté aceptado con razón. Avisa al usuario cuántas páginas vas a procesar antes de empezar; si son más de 20, hazlo por lotes y ve informando el avance.
 
 ### 2.2 Clasificar
 
@@ -161,17 +161,18 @@ Ejecuta `npm run rules:validate`. Corrige cada problema que reporte (ids repetid
 
 ### 2.5 Control de calidad
 
-Se ejecuta siempre, aunque el estado fuera AL DÍA, porque mide la extracción ya hecha.
+Cuando `rules:status` muestra la sección CALIDAD, la extracción está completa pero no basta. Trabaja lo que señale:
 
-1. **Cobertura.** Ejecuta `npm run rules:coverage`. Por cada página en REVISAR: relee `guidelines/.cache/<pageId>.md` completo, compara con las reglas que ya tiene (busca su `pageId` en `fuente`) y agrega las obligaciones que faltan, una por enunciado normativo y una por fila de tabla normativa. Por cada página en EXCLUIDAS CON LENGUAJE NORMATIVO: reléela; si contiene reglas de contrato, reclasifícala con `rules:classify` y extráelas; si no, confirma la exclusión con una razón más precisa que "introducción" (qué contiene y por qué no aplica). Repite hasta que el comando no señale nada o lo que señale esté justificado; en ese caso dilo en el resumen.
-2. **Verificación.** Recorre las reglas marcadas `asistida` y aplica el criterio de `verificacion`: las que se comprueben con una condición mecánica pasan a `automatica` con su `como_verificar` concreto. Si al terminar menos de la mitad de las reglas de nomenclatura, uri, versionamiento, codigos-de-respuesta, cabeceras y paginacion son automáticas, revisa de nuevo.
-3. **Otros.** Por cada regla en `otros.yaml`, decide si encaja en una categoría existente y muévela (cambia el archivo y el prefijo del id; conserva `fuente`). Las que de verdad no encajen, agrúpalas y propón al usuario un nombre de categoría nueva en el resumen; no la crees sin su acuerdo.
-4. **Alcance.** Las reglas extraídas de páginas del árbol "APIs REST de Uso Externo" tienen `alcance: [externa]` salvo que la página diga que aplican a todas; las de taxonomía interna, `[interna]`.
+1. **REVISAR COBERTURA.** Por cada página listada: relee `guidelines/.cache/<pageId>.md` completo, compara con las reglas que ya tiene (busca su `pageId` en `fuente`) y agrega las obligaciones que faltan, una por enunciado normativo y una por fila de tabla normativa. Si tras releer concluyes que la página está bien con las reglas que tiene (por ejemplo, el lenguaje normativo describe un proceso y no el contrato), ejecuta `npm run rules:accept -- <pageId> --razon "..."` con una razón concreta; queda registrado y no se vuelve a señalar.
+2. **EXCLUIDAS CON LENGUAJE NORMATIVO.** Por cada página listada: reléela. Si contiene reglas de contrato, reclasifícala con `rules:classify` y extráelas. Si no, `rules:accept` con una razón precisa: qué contiene y por qué no aplica al contrato. "Introducción" no es una razón suficiente.
+3. **VERIFICACIÓN.** Recorre las reglas marcadas `asistida` y aplica el criterio de `verificacion`: las que se comprueben con una condición mecánica pasan a `automatica` con su `como_verificar` concreto. El aviso desaparece cuando al menos la mitad de las reglas de nomenclatura, uri, versionamiento, codigos-de-respuesta, cabeceras y paginacion son automáticas.
+4. **Otros.** Por cada regla en `otros.yaml`, decide si encaja en una categoría existente y muévela (cambia el archivo y el prefijo del id; conserva `fuente`). Las que de verdad no encajen, agrúpalas y propón al usuario un nombre de categoría nueva en el resumen; no la crees sin su acuerdo.
+5. **Alcance.** Las reglas extraídas de páginas del árbol "APIs REST de Uso Externo" tienen `alcance: [externa]` salvo que la página diga que aplican a todas; las de taxonomía interna, `[interna]`.
 
-Después vuelve a ejecutar `npm run rules:validate` hasta código 0 y luego `npm run guidelines:approve` para registrar que las reglas corresponden a esta versión de los lineamientos.
+Después vuelve a ejecutar `npm run rules:validate` hasta código 0, `npm run rules:status` hasta código 0, y luego `npm run guidelines:approve` para registrar que las reglas corresponden a esta versión de los lineamientos.
 
 ### 2.6 Resumir
 
-Ejecuta `npm run rules:summary` y muestra al usuario la salida completa: cuántas reglas por categoría y tipo de verificación, cuántos esquemas en el catálogo, y la lista de páginas fuera de alcance con su razón. Añade la salida de `npm run rules:coverage` si todavía señala algo, con la justificación. Pídele que confirme que ninguna página excluida contiene reglas de contrato, y preséntale las categorías nuevas que propones para `otros`. Si hubo páginas CAMBIADAS, resume qué reglas aparecieron, cambiaron o se retiraron.
+Ejecuta `npm run rules:summary` y muestra al usuario la salida completa: cuántas reglas por categoría y tipo de verificación, cuántos esquemas en el catálogo, y la lista de páginas fuera de alcance con su razón. Añade la salida de `npm run rules:coverage`, que incluye las páginas aceptadas con su razón. Pídele que confirme que ninguna página excluida contiene reglas de contrato, y preséntale las categorías nuevas que propones para `otros`. Si hubo páginas CAMBIADAS, resume qué reglas aparecieron, cambiaron o se retiraron.
 
 Después de la Etapa 2, continúa con la siguiente etapa activa. Si no hay ninguna, termina e indica hasta dónde llegaste.

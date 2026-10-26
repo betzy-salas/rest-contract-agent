@@ -6,7 +6,8 @@
  * y registra con qué versión de la página lo hizo. Este script lleva ese registro y valida el resultado; nunca
  * escribe reglas por su cuenta.
  *
- *   node scripts/rules.mjs status                          qué páginas faltan por clasificar, extraer o reextraer
+ *   node scripts/rules.mjs status                          qué páginas faltan por clasificar, extraer o reextraer, y qué calidad falta
+ *   node scripts/rules.mjs accept <pageId> --razon "..."   acepta que una página señalada por coverage está bien así (queda registrado)
  *   node scripts/rules.mjs classify <pageId> <categoria> [--razon "texto"]
  *   node scripts/rules.mjs forget <pageId>                 borra las reglas de esa página (antes de reextraer, o si se eliminó)
  *   node scripts/rules.mjs done <pageId> [<pageId>...]     marca la(s) página(s) como extraída(s) con su versión actual
@@ -48,9 +49,9 @@ const CATALOGO = 'catalogo-esquemas.yaml';
 const modo = process.argv[2];
 const args = process.argv.slice(3);
 const usos = Object.keys(CATEGORIAS).join(' | ');
-if (!['status', 'classify', 'forget', 'done', 'validate', 'summary', 'coverage'].includes(modo)) salir(2, 'Uso: node scripts/rules.mjs <status|classify|forget|done|validate|summary|coverage>');
+if (!['status', 'classify', 'forget', 'done', 'validate', 'summary', 'coverage', 'accept'].includes(modo)) salir(2, 'Uso: node scripts/rules.mjs <status|classify|forget|done|validate|summary|coverage|accept>');
 
-const paginas = leerCache({ conCuerpo: modo === 'coverage' });
+const paginas = leerCache({ conCuerpo: modo === 'coverage' || modo === 'status' });
 const porId = new Map(paginas.map(p => [p.pageId, p]));
 const registro = leerYaml(pagesPath, { pages: {} });
 registro.pages ??= {};
@@ -66,6 +67,61 @@ const leerReglas = archivo => {
   return datos;
 };
 
+// ---------- heurística de cobertura (la usan status y coverage) ----------
+// Cuenta frases con lenguaje normativo y filas de tabla del texto, y las compara con las reglas extraídas de esa página.
+// No mide calidad, mide huecos: una página con 20 enunciados normativos y 2 reglas casi seguro quedó resumida.
+const NORMATIVO = /\b(debe[nr]?[áa]?n?|deber[áa]n?|no debe[n]?|obligatori[oa]s?|siempre|nunca|prohibid[oa]s?|(no )?se permite[n]?|(no )?est[áa] permitid[oa]|recomendad[oa]s?|se recomienda|por defecto|requerid[oa]s?|mandatori[oa]s?|necesari[oa]s?|únicamente|solo se|solamente|must|should|shall|required|mandatory)\b/i;
+function medirNormativo(cuerpo) {
+  let enunciados = 0, filas = 0, enCodigo = false;
+  for (const l of cuerpo.split('\n')) {
+    if (/^\s*```/.test(l)) { enCodigo = !enCodigo; continue; }
+    if (enCodigo) continue;
+    if (/^\s*\|/.test(l)) { if (!/^\s*\|[\s:|-]*\|\s*$/.test(l)) filas++; continue; }
+    for (const frase of l.split(/(?<=[.;!?])\s+/)) if (NORMATIVO.test(frase)) enunciados++;
+  }
+  return { enunciados, filas: Math.max(0, filas - 1) }; // -1 por la fila de encabezado de la primera tabla
+}
+function todasLasReglas() { const out = []; for (const a of archivosReglas()) for (const r of leerReglas(a)) out.push({ ...r, _archivo: a }); return out; }
+function cobertura() {
+  const reglasPorPagina = new Map();
+  for (const r of todasLasReglas()) { const k = String(r?.fuente?.pageId); reglasPorPagina.set(k, (reglasPorPagina.get(k) ?? 0) + 1); }
+  const revisar = [], excluidasConNormas = [], aceptadas = [], ok = [];
+  for (const p of paginas) {
+    const r = registro.pages[p.pageId];
+    if (!r?.category || r.category === 'esquemas-de-dominio') continue;
+    if (r.coverageAccepted) { aceptadas.push({ p, r }); continue; }
+    const m = medirNormativo(p.cuerpo ?? '');
+    if (r.category === 'fuera-de-alcance') { if (m.enunciados >= 3) excluidasConNormas.push({ p, m, r }); continue; }
+    const reglas = reglasPorPagina.get(p.pageId) ?? 0;
+    const esperado = Math.max(m.enunciados, Math.round(m.filas / 2));
+    if ((reglas === 0 && esperado > 0) || (esperado >= 4 && reglas * 2 < esperado)) revisar.push({ p, m, r, reglas, esperado, hueco: esperado - reglas });
+    else ok.push(p);
+  }
+  revisar.sort((a, b) => b.hueco - a.hueco);
+  return { revisar, excluidasConNormas, aceptadas, ok };
+}
+function calidadVerificacion() {
+  const reglas = todasLasReglas();
+  const automaticas = reglas.filter(r => r.verificacion === 'automatica').length;
+  const mecanicas = ['nomenclatura', 'uri', 'versionamiento', 'codigos-de-respuesta', 'cabeceras', 'paginacion'];
+  const enMecanicas = reglas.filter(r => mecanicas.includes(r._archivo.replace(/\.yaml$/, '')));
+  const autoMecanicas = enMecanicas.filter(r => r.verificacion === 'automatica').length;
+  const avisos = [];
+  if (reglas.length >= 20 && automaticas === 0) avisos.push(`ninguna de las ${reglas.length} reglas es automática; aplica el criterio de verificación (condición mecánica sobre el OpenAPI = automatica)`);
+  else if (enMecanicas.length >= 10 && autoMecanicas * 2 < enMecanicas.length) avisos.push(`solo ${autoMecanicas} de ${enMecanicas.length} reglas de categorías mecánicas (${mecanicas.join(', ')}) son automáticas; revisa las asistidas de esas categorías`);
+  return { avisos, total: reglas.length, automaticas };
+}
+const imprimirCobertura = ({ revisar, excluidasConNormas }) => {
+  if (revisar.length) {
+    console.log('\nREVISAR COBERTURA · relee la página completa y agrega las reglas que falten (una por obligación, una por fila de tabla normativa). Si la página está bien así: npm run rules:accept -- <pageId> --razon "..."');
+    for (const x of revisar) console.log(`  [${x.p.space}] ${x.p.title} (id ${x.p.pageId}) · ${x.r.category} · ${x.reglas} reglas vs ${x.m.enunciados} enunciados normativos y ${x.m.filas} filas de tabla`);
+  }
+  if (excluidasConNormas.length) {
+    console.log('\nEXCLUIDAS CON LENGUAJE NORMATIVO · relee y decide: rules:classify a una categoría y extrae, o rules:accept con la razón precisa de por qué no aplica:');
+    for (const x of excluidasConNormas) console.log(`  [${x.p.space}] ${x.p.title} (id ${x.p.pageId}) · ${x.m.enunciados} enunciados normativos · razón actual: ${x.r.reason}`);
+  }
+};
+
 // ---------- status ----------
 if (modo === 'status') {
   const sinClasificar = [], pendientes = [], cambiadas = [], alDia = [], excluidas = [];
@@ -78,14 +134,39 @@ if (modo === 'status') {
     else alDia.push(p);
   }
   const eliminadas = Object.entries(registro.pages).filter(([id]) => !porId.has(id)).map(([id, r]) => ({ pageId: id, ...r }));
-  const hayPendientes = sinClasificar.length + pendientes.length + cambiadas.length + eliminadas.length > 0;
-  console.log(`Reglas: ${hayPendientes ? 'PENDIENTES' : 'AL DÍA'} · ${paginas.length} páginas · ${alDia.length} al día · ${excluidas.length} fuera de alcance · ${sinClasificar.length} sin clasificar · ${pendientes.length} por extraer · ${cambiadas.length} cambiadas · ${eliminadas.length} eliminadas`);
+  const hayExtraccion = sinClasificar.length + pendientes.length + cambiadas.length + eliminadas.length > 0;
+  // La calidad solo se evalúa cuando no queda extracción pendiente: primero completar, después afinar.
+  const cob = hayExtraccion ? null : cobertura();
+  const ver = hayExtraccion ? null : calidadVerificacion();
+  const hayCalidad = !!cob && (cob.revisar.length + cob.excluidasConNormas.length > 0 || ver.avisos.length > 0);
+  const hayPendientes = hayExtraccion || hayCalidad;
+  console.log(`Reglas: ${hayPendientes ? 'PENDIENTES' : 'AL DÍA'} · ${paginas.length} páginas · ${alDia.length} al día · ${excluidas.length} fuera de alcance · ${sinClasificar.length} sin clasificar · ${pendientes.length} por extraer · ${cambiadas.length} cambiadas · ${eliminadas.length} eliminadas${cob ? ` · calidad: ${cob.revisar.length} con hueco, ${cob.excluidasConNormas.length} excluidas dudosas, ${ver.avisos.length} avisos de verificación` : ''}`);
   const linea = (p, extra = '') => `  [${p.space}] ${p.title} (id ${p.pageId})${extra}`;
   if (sinClasificar.length) { console.log('\nSIN CLASIFICAR · ejecuta: npm run rules:classify -- <pageId> <categoria> [--razon "..."]'); for (const p of sinClasificar) console.log(linea(p)); }
   if (pendientes.length) { console.log('\nPOR EXTRAER · lee guidelines/.cache/<pageId>.md, escribe las reglas y ejecuta: npm run rules:done -- <pageId>'); for (const p of pendientes) console.log(linea(p, ` · ${p.category}`)); }
   if (cambiadas.length) { console.log('\nCAMBIADAS · la página cambió desde la extracción: npm run rules:forget -- <pageId>, reextrae y npm run rules:done -- <pageId>'); for (const p of cambiadas) console.log(linea(p, ` · ${p.category}`)); }
   if (eliminadas.length) { console.log('\nELIMINADAS · ya no están en Confluence: npm run rules:forget -- <pageId> (retira sus reglas y el registro)'); for (const p of eliminadas) console.log(`  ${p.title ?? '?'} (id ${p.pageId}) · ${p.category}`); }
+  if (hayCalidad) {
+    console.log('\nCALIDAD · la extracción está completa pero no basta:');
+    imprimirCobertura(cob);
+    if (ver.avisos.length) { console.log('\nVERIFICACIÓN'); for (const a of ver.avisos) console.log(`  - ${a}`); }
+  }
   process.exit(hayPendientes ? 1 : 0);
+}
+
+// ---------- accept ----------
+if (modo === 'accept') {
+  const [pageId] = args;
+  const iRazon = args.indexOf('--razon');
+  const razon = iRazon >= 0 ? args[iRazon + 1] : null;
+  if (!pageId || !razon || razon.trim().length < 15) salir(2, 'Uso: rules.mjs accept <pageId> --razon "por qué la página está bien con las reglas que tiene (mínimo 15 caracteres)"');
+  const r = registro.pages[pageId];
+  if (!porId.has(pageId)) salir(2, `No hay ninguna página con id ${pageId} en guidelines/.cache`);
+  if (!r?.category) salir(2, `La página ${pageId} no está clasificada`);
+  r.coverageAccepted = razon;
+  guardarRegistro();
+  console.log(`Aceptada la cobertura de ${pageId} (${r.title}) · ${razon}`);
+  process.exit(0);
 }
 
 // ---------- classify ----------
@@ -101,6 +182,7 @@ if (modo === 'classify') {
   const previo = registro.pages[pageId];
   registro.pages[pageId] = { title: p.title, space: p.space, url: p.url, category: categoria, reason: razon ?? null,
     contentHash: previo?.category === categoria ? previo.contentHash ?? null : null };
+  // al reclasificar, la aceptación de cobertura anterior deja de valer
   guardarRegistro();
   console.log(`Clasificada [${p.space}] ${p.title} (id ${pageId}) → ${categoria}${razon ? ` · ${razon}` : ''}`);
   process.exit(0);
@@ -120,7 +202,7 @@ if (modo === 'forget') {
   const quedanCat = catalogo.filter(e => String(e?.fuente?.pageId) !== pageId);
   if (quedanCat.length !== catalogo.length) { borradas += catalogo.length - quedanCat.length; escribirYaml(path.join(dirReglas, CATALOGO), quedanCat); }
   const r = registro.pages[pageId];
-  if (r) { if (porId.has(pageId)) r.contentHash = null; else delete registro.pages[pageId]; guardarRegistro(); }
+  if (r) { if (porId.has(pageId)) { r.contentHash = null; delete r.coverageAccepted; } else delete registro.pages[pageId]; guardarRegistro(); }
   console.log(`Retiradas ${borradas} entradas de la página ${pageId}${porId.has(pageId) ? ' · queda pendiente de reextraer' : ' · registro eliminado'}`);
   process.exit(0);
 }
@@ -218,56 +300,19 @@ if (modo === 'summary') {
   for (const [id, r] of excluidas.sort((a, b) => (a[1].reason ?? '').localeCompare(b[1].reason ?? ''))) console.log(`  - [${r.space}] ${r.title} (id ${id}) · ${r.reason}`);
   const otros = porCat.get('otros') ?? 0;
   if (otros) console.log(`\n${otros} reglas en "otros": revisa si merecen una categoría propia.`);
-  if (total >= 20 && porVerif.automatica === 0) console.log('\nAVISO: ninguna regla es automática. Es muy improbable: nombres, versión en el path, códigos por método o formato de headers se comprueban mecánicamente. Ejecuta el paso de calidad (rules:coverage) y reclasifica.');
+  const ver = calidadVerificacion();
+  for (const a of ver.avisos) console.log(`\nAVISO: ${a}`);
   process.exit(0);
 }
 
 // ---------- coverage ----------
 if (modo === 'coverage') {
-  // Heurística: cuenta las líneas del texto con lenguaje normativo y las filas de tabla, y las compara con las reglas extraídas.
-  // No mide calidad, mide huecos: una página con 20 enunciados normativos y 2 reglas casi seguro quedó resumida.
-  const NORMATIVO = /\b(debe[nr]?[áa]?n?|deber[áa]n?|no debe[n]?|obligatori[oa]s?|siempre|nunca|prohibid[oa]s?|(no )?se permite[n]?|(no )?est[áa] permitid[oa]|recomendad[oa]s?|se recomienda|por defecto|requerid[oa]s?|mandatori[oa]s?|necesari[oa]s?|únicamente|solo se|solamente|must|should|shall|required|mandatory)\b/i;
-  const medir = cuerpo => {
-    const lineas = cuerpo.split('\n');
-    let enunciados = 0, filas = 0, enCodigo = false;
-    for (const l of lineas) {
-      if (/^\s*```/.test(l)) { enCodigo = !enCodigo; continue; }
-      if (enCodigo) continue;
-      if (/^\s*\|/.test(l)) { if (!/^\s*\|[\s:|-]*\|\s*$/.test(l)) filas++; continue; }
-      for (const frase of l.split(/(?<=[.;!?])\s+/)) if (NORMATIVO.test(frase)) enunciados++;
-    }
-    return { enunciados, filas: Math.max(0, filas - 1) }; // -1 por la fila de encabezado de la primera tabla
-  };
-  const reglasPorPagina = new Map();
-  for (const archivo of archivosReglas()) for (const r of leerReglas(archivo)) { const k = String(r?.fuente?.pageId); reglasPorPagina.set(k, (reglasPorPagina.get(k) ?? 0) + 1); }
-  const catalogoPorPagina = new Map();
-  for (const e of leerYaml(path.join(dirReglas, CATALOGO), [])) { const k = String(e?.fuente?.pageId); catalogoPorPagina.set(k, (catalogoPorPagina.get(k) ?? 0) + 1); }
-  const revisar = [], excluidasConNormas = [], ok = [];
-  for (const p of paginas) {
-    const r = registro.pages[p.pageId];
-    if (!r?.category) continue;
-    const m = medir(p.cuerpo);
-    if (r.category === 'fuera-de-alcance') {
-      if (m.enunciados >= 3) excluidasConNormas.push({ p, m, r });
-      continue;
-    }
-    if (r.category === 'esquemas-de-dominio') continue;
-    const reglas = reglasPorPagina.get(p.pageId) ?? 0;
-    const esperado = Math.max(m.enunciados, Math.round(m.filas / 2));
-    const hueco = esperado - reglas;
-    if ((reglas === 0 && esperado > 0) || (esperado >= 4 && reglas * 2 < esperado)) revisar.push({ p, m, r, reglas, esperado, hueco });
-    else ok.push(p);
-  }
-  revisar.sort((a, b) => b.hueco - a.hueco);
-  console.log(`Cobertura: ${revisar.length} páginas con posible subextracción · ${excluidasConNormas.length} excluidas con lenguaje normativo · ${ok.length} sin señal`);
-  if (revisar.length) {
-    console.log('\nREVISAR · relee la página completa y agrega las reglas que falten (una por obligación, una por fila de tabla normativa):');
-    for (const x of revisar) console.log(`  [${x.p.space}] ${x.p.title} (id ${x.p.pageId}) · ${x.r.category} · ${x.reglas} reglas vs ${x.m.enunciados} enunciados normativos y ${x.m.filas} filas de tabla`);
-  }
-  if (excluidasConNormas.length) {
-    console.log('\nEXCLUIDAS CON LENGUAJE NORMATIVO · relee y decide: reclasificar a una categoría, o confirmar la exclusión con una razón más precisa:');
-    for (const x of excluidasConNormas) console.log(`  [${x.p.space}] ${x.p.title} (id ${x.p.pageId}) · ${x.m.enunciados} enunciados normativos · razón actual: ${x.r.reason}`);
-  }
+  const cob = cobertura();
+  const ver = calidadVerificacion();
+  console.log(`Cobertura: ${cob.revisar.length} páginas con posible subextracción · ${cob.excluidasConNormas.length} excluidas con lenguaje normativo · ${cob.aceptadas.length} aceptadas con razón · ${cob.ok.length} sin señal · ${ver.automaticas} de ${ver.total} reglas automáticas`);
+  imprimirCobertura(cob);
+  if (ver.avisos.length) { console.log('\nVERIFICACIÓN'); for (const a of ver.avisos) console.log(`  - ${a}`); }
+  if (cob.aceptadas.length) { console.log('\nACEPTADAS (no se vuelven a señalar):'); for (const x of cob.aceptadas) console.log(`  [${x.p.space}] ${x.p.title} (id ${x.p.pageId}) · ${x.r.coverageAccepted}`); }
   console.log('\nEs una heurística: una página puede tener lenguaje normativo sin reglas de contrato (por ejemplo, instrucciones de proceso). Lo que no debe pasar es que una página con muchas obligaciones tenga dos reglas.');
-  process.exit(revisar.length + excluidasConNormas.length ? 1 : 0);
+  process.exit(cob.revisar.length + cob.excluidasConNormas.length + ver.avisos.length ? 1 : 0);
 }

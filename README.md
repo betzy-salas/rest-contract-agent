@@ -156,7 +156,7 @@ npm run guidelines:sync      # descarga a guidelines/.cache · 0 ok · 2 error
 npm run guidelines:sync -- --max-age 60   # igual, pero reutiliza la descarga si tiene menos de 60 min
 npm run guidelines:list      # índice de páginas descargadas (espacio, título, id), sin contenido
 npm run guidelines:check     # 0 vigentes · 1 cambios · 2 error
-npm run rules:status         # qué páginas faltan por clasificar, extraer o reextraer · 0 al día · 1 pendientes
+npm run rules:status         # qué falta: clasificar, extraer, reextraer o calidad · 0 al día · 1 pendientes
 npm run rules:validate       # estructura, ids y fuentes de las reglas · 0 ok · 2 errores
 npm run rules:summary        # reglas por categoría y verificación; páginas fuera de alcance
 npm run rules:coverage       # por página, reglas extraídas vs. enunciados normativos del texto: detecta subextracción

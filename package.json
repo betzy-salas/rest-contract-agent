@@ -13,7 +13,8 @@
     "rules:done": "node scripts/rules.mjs done",
     "rules:validate": "node scripts/rules.mjs validate",
     "rules:summary": "node scripts/rules.mjs summary",
-    "rules:coverage": "node scripts/rules.mjs coverage"
+    "rules:coverage": "node scripts/rules.mjs coverage",
+    "rules:accept": "node scripts/rules.mjs accept"
   },
   "dependencies": {
     "turndown": "^7.2.0",
