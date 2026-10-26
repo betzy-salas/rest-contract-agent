@@ -47,7 +47,9 @@ Lee `guidelines/sources.yaml`. Cada fuente es una **página** (`/wiki/spaces/<ES
 
 ### 1.2 Descargar las páginas
 
-Ejecuta `npm run guidelines:sync`. El script lee `sources.yaml`, descarga por la API REST de Confluence cada página y todo el contenido de cada carpeta (páginas, subpáginas y subcarpetas, en todos los niveles, sin importar `includeChildren`), lo convierte a Markdown y lo guarda en `guidelines/.cache/<pageId>.md` con un frontmatter de metadatos (`pageId`, `title`, `space`, `url`, `sourceUrl`, `parentId`, `topic`, `version`, `lastModified`). No modifiques esos archivos.
+Ejecuta `npm run guidelines:sync -- --max-age 60`. Si la última descarga completa tiene menos de una hora y las fuentes no cambiaron, el script la reutiliza y lo dice en una línea (`Caché reciente`); así `/extract-rules` o una generación no vuelven a descargar lo que acabas de sincronizar. Ejecuta `npm run guidelines:sync` sin `--max-age` solo cuando el usuario pida sincronizar explícitamente (`/sync-guidelines` o "vuelve a descargar los lineamientos").
+
+El script lee `sources.yaml`, descarga por la API REST de Confluence cada página y todo el contenido de cada carpeta (páginas, subpáginas y subcarpetas, en todos los niveles, sin importar `includeChildren`), lo convierte a Markdown y lo guarda en `guidelines/.cache/<pageId>.md` con un frontmatter de metadatos (`pageId`, `title`, `space`, `url`, `sourceUrl`, `parentId`, `topic`, `version`, `lastModified`). No modifiques esos archivos.
 
 Lee la salida completa del script:
 

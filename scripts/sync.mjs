@@ -2,7 +2,10 @@
 /**
  * Descarga los lineamientos de Confluence Cloud a guidelines/.cache/<pageId>.md.
  *
- *   node scripts/sync.mjs          (o: npm run guidelines:sync)
+ *   node scripts/sync.mjs                    (o: npm run guidelines:sync)            descarga siempre
+ *   node scripts/sync.mjs --max-age <min>    (o: npm run guidelines:sync -- --max-age 60)
+ *       si la última descarga completa tiene menos de <min> minutos, la reutiliza y no vuelve a descargar.
+ *       El momento de la última descarga queda en guidelines/.cache/.sync.json.
  *
  * Lee las fuentes de guidelines/sources.yaml (páginas /pages/<id>/ y carpetas /folder/<id>) y usa la API REST v2
  * de Confluence. No usa el MCP de Atlassian. Solo hace peticiones GET: nunca modifica nada en Confluence.
@@ -23,6 +26,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import tls from 'node:tls';
+import crypto from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import YAML from 'yaml';
 import { fetch, EnvHttpProxyAgent } from 'undici';
@@ -69,6 +73,25 @@ if (CONFLUENCE_EMAIL && CONFLUENCE_API_TOKEN) {
 } else {
   salir('Sin credenciales. Define CONFLUENCE_EMAIL + CONFLUENCE_API_TOKEN, o CONFLUENCE_COOKIE, en el entorno o en .env (ver README, "Conectar Confluence")');
 }
+
+// ---------- ¿reutilizar la descarga anterior? ----------
+const estadoPath = path.join(cacheDir, '.sync.json');
+const iMaxAge = process.argv.indexOf('--max-age');
+if (iMaxAge >= 0) {
+  const minutos = Number(process.argv[iMaxAge + 1]);
+  if (!Number.isFinite(minutos) || minutos <= 0) salir('--max-age requiere un número de minutos mayor que cero');
+  if (fs.existsSync(estadoPath)) {
+    const estado = JSON.parse(fs.readFileSync(estadoPath, 'utf8'));
+    const edadMin = (Date.now() - new Date(estado.at).getTime()) / 60000;
+    const hayMd = fs.existsSync(cacheDir) && fs.readdirSync(cacheDir).some(f => f.endsWith('.md'));
+    const mismasFuentes = fs.existsSync(sourcesPath) && estado.sourcesHash === hashArchivo(sourcesPath);
+    if (estado.completa && hayMd && mismasFuentes && edadMin < minutos) {
+      console.log(`Caché reciente: descargada hace ${Math.round(edadMin)} min (${estado.paginas} páginas). No se vuelve a descargar; para forzarlo ejecuta npm run guidelines:sync sin --max-age.`);
+      process.exit(0);
+    }
+  }
+}
+function hashArchivo(ruta) { return crypto.createHash('sha256').update(fs.readFileSync(ruta)).digest('hex'); }
 
 // ---------- fuentes ----------
 if (!fs.existsSync(sourcesPath)) salir('No existe guidelines/sources.yaml');
@@ -222,4 +245,5 @@ if (omitidas.length) {
 }
 console.log(`Descargadas ${escritas.size} páginas en guidelines/.cache`);
 if (!escritas.size && !fallas.length) fallas.push('ninguna fuente produjo páginas con texto');
+fs.writeFileSync(estadoPath, JSON.stringify({ at: new Date().toISOString(), completa: fallas.length === 0, paginas: escritas.size, omitidas: omitidas.length, sourcesHash: hashArchivo(sourcesPath) }, null, 2) + '\n');
 if (fallas.length) salir('La descarga quedó incompleta. No sigas con lineamientos incompletos:\n' + fallas.map(x => '  - ' + x).join('\n'));

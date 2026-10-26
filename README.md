@@ -142,8 +142,8 @@ Todo se hace desde el chat de Copilot, modo **Agent**. Escribes uno de estos pro
 
 | Prompt | Qué hace |
 |---|---|
-| `/sync-guidelines` | Solo Etapa 1: descarga y reporta si los lineamientos cambiaron |
-| `/extract-rules` | Etapas 1 y 2: descarga y actualiza las reglas en `guidelines/rules/` |
+| `/sync-guidelines` | Solo Etapa 1: descarga siempre y reporta si los lineamientos cambiaron |
+| `/extract-rules` | Etapas 1 y 2: actualiza las reglas en `guidelines/rules/`. Reutiliza la descarga si tiene menos de una hora |
 
 La primera extracción procesa todas las páginas y puede tardar; el agente avisa el avance por lotes. Las siguientes solo tocan las páginas que cambiaron.
 
@@ -153,6 +153,7 @@ Para inspeccionar el estado desde la terminal, sin el agente (opcional):
 
 ```bash
 npm run guidelines:sync      # descarga a guidelines/.cache · 0 ok · 2 error
+npm run guidelines:sync -- --max-age 60   # igual, pero reutiliza la descarga si tiene menos de 60 min
 npm run guidelines:list      # índice de páginas descargadas (espacio, título, id), sin contenido
 npm run guidelines:check     # 0 vigentes · 1 cambios · 2 error
 npm run rules:status         # qué páginas faltan por clasificar, extraer o reextraer · 0 al día · 1 pendientes
