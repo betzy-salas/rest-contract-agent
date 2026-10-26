@@ -78,7 +78,7 @@ Ejecuta `npm run guidelines:check`. Compara la caché con la última versión de
 
 ## Etapa 2 — Traducir los lineamientos a reglas verificables
 
-Convierte las páginas en reglas concretas que se puedan aplicar al generar y al verificar un contrato. Las reglas viven en `guidelines/rules/<categoria>.yaml`; el catálogo de esquemas canónicos en `guidelines/rules/catalogo-esquemas.yaml`; el registro de qué página está en qué estado en `guidelines/rules/pages.yaml`. Se ejecuta siempre después de la Etapa 1, y también sola con el prompt `/extract-rules`.
+Convierte las páginas en reglas concretas y esquemas que se puedan aplicar al generar y al verificar un contrato. Las reglas viven en `guidelines/rules/<categoria>.yaml`; los **esquemas normativos** que los lineamientos definen (el cuerpo de error estándar, el sobre de paginación, los headers comunes...) en `guidelines/rules/esquemas-normativos.yaml`; el catálogo de esquemas de dominio en `guidelines/rules/catalogo-esquemas.yaml`; el registro de qué página está en qué estado en `guidelines/rules/pages.yaml`. Se ejecuta siempre después de la Etapa 1, y también sola con el prompt `/extract-rules`.
 
 ### 2.1 Estado
 
@@ -121,7 +121,9 @@ Criterios:
 Por cada página POR EXTRAER (y por cada CAMBIADA, tras ejecutar `npm run rules:forget -- <pageId>`):
 
 1. Lee **completo** `guidelines/.cache/<pageId>.md`.
-2. Identifica cada enunciado normativo: debe, no debe, siempre, nunca, obligatorio, prohibido, recomendado, se permite, por defecto. Una regla por obligación; si un párrafo contiene tres obligaciones, son tres reglas. Las tablas suelen contener una regla por fila.
+2. Identifica dos tipos de contenido y trátalos distinto:
+   - **Obligaciones**: frases con debe, no debe, siempre, nunca, obligatorio, prohibido, recomendado, se permite, por defecto; y tablas donde cada fila es una norma (por ejemplo, código HTTP y cuándo usarlo). Una regla por obligación; si un párrafo contiene tres obligaciones, son tres reglas; una fila, una regla.
+   - **Definiciones de esquema**: tablas de campos con columnas como nombre, tipo, obligatorio, descripción, valores; y ejemplos JSON acompañados de explicación. No las conviertas en frases: cópialas como un esquema normativo con **todos** los campos (paso 4b). La página de errores, la de paginación o la de headers comunes suelen ser de este tipo. Además escribe la regla que obliga a usarlo (por ejemplo, "toda respuesta 4xx y 5xx usa el esquema Error"), con `aplica_a: responses` y `como_verificar` que referencie el esquema.
 3. Agrega las reglas al final de `guidelines/rules/<categoria>.yaml` (créalo como lista YAML si no existe) con esta forma:
 
    ```yaml
@@ -142,7 +144,29 @@ Por cada página POR EXTRAER (y por cada CAMBIADA, tras ejecutar `npm run rules:
    - `asistida`: requiere leer el contrato con criterio pero toda la información está en él. Ejemplo: "la descripción del endpoint explica el caso de uso", "el recurso representa un sustantivo de negocio y no una acción".
    - `manual`: requiere información que no está en el contrato. Ejemplo: "el API está registrado en el catálogo corporativo".
    Si dudas entre automática y asistida, elige automática y escribe la condición: es más barato de verificar y más fiable.
-4. Si la categoría es `esquemas-de-dominio`, en lugar de reglas agrega una entrada a `guidelines/rules/catalogo-esquemas.yaml`:
+4b. Si la página **define un esquema** (ver paso 2), agrega una entrada a `guidelines/rules/esquemas-normativos.yaml` con todos sus campos, fiel a la página:
+
+   ```yaml
+   - nombre: Error                            # PascalCase; será el nombre en components.schemas
+     uso: "Cuerpo de toda respuesta 4xx y 5xx"
+     alcance: [interna, externa]
+     campos:
+       - nombre: type
+         tipo: string                         # string | integer | number | boolean | array | object | null
+         formato: null                        # date-time, uuid, int64... si la página lo dice
+         obligatorio: true                    # true/false según la página; si no lo dice, false y anótalo en descripcion
+         valores: [FUNCTIONAL, TECHNICAL]     # lista cerrada si la página la define; si no, omite el campo
+         descripcion: "Indica si el error es funcional o técnico"
+       - nombre: code
+         tipo: string
+         obligatorio: true
+         descripcion: "Código de error del catálogo corporativo"
+     ejemplo: '{"type":"FUNCTIONAL","code":"CUS-001","message":"..."}'   # el de la página, si lo hay
+     fuente: { pageId: "123456", titulo: "Errores", url: "https://..." }
+   ```
+
+   Si un campo es a su vez un objeto o una lista de objetos, agrega su contenido como otro esquema normativo y menciónalo en `descripcion` ("objeto ErrorDetail"). No omitas campos opcionales ni campos "obvios": el contrato se generará a partir de esta lista.
+4c. Si la categoría es `esquemas-de-dominio`, en lugar de reglas agrega una entrada a `guidelines/rules/catalogo-esquemas.yaml`:
 
    ```yaml
    - nombre: "Customer Offer"
@@ -163,7 +187,7 @@ Ejecuta `npm run rules:validate`. Corrige cada problema que reporte (ids repetid
 
 Cuando `rules:status` muestra la sección CALIDAD, la extracción está completa pero no basta. Trabaja lo que señale:
 
-1. **REVISAR COBERTURA.** Por cada página listada: relee `guidelines/.cache/<pageId>.md` completo, compara con las reglas que ya tiene (busca su `pageId` en `fuente`) y agrega las obligaciones que faltan, una por enunciado normativo y una por fila de tabla normativa. Si tras releer concluyes que la página está bien con las reglas que tiene (por ejemplo, el lenguaje normativo describe un proceso y no el contrato), ejecuta `npm run rules:accept -- <pageId> --razon "..."` con una razón concreta; queda registrado y no se vuelve a señalar.
+1. **REVISAR COBERTURA.** Por cada página listada: relee `guidelines/.cache/<pageId>.md` completo y compara con lo que ya tiene (busca su `pageId` en `fuente` de reglas y esquemas). La línea dice cuántos enunciados normativos, filas de tabla y claves de ejemplos JSON tiene la página: las filas y claves que no estén cubiertas casi siempre son campos de un esquema normativo que falta o quedó incompleto; los enunciados, reglas que faltan. Agrega lo que falte. Si tras releer concluyes que la página está bien con las reglas que tiene (por ejemplo, el lenguaje normativo describe un proceso y no el contrato), ejecuta `npm run rules:accept -- <pageId> --razon "..."` con una razón concreta; queda registrado y no se vuelve a señalar.
 2. **EXCLUIDAS CON LENGUAJE NORMATIVO.** Por cada página listada: reléela. Si contiene reglas de contrato, reclasifícala con `rules:classify` y extráelas. Si no, `rules:accept` con una razón precisa: qué contiene y por qué no aplica al contrato. "Introducción" no es una razón suficiente.
 3. **VERIFICACIÓN.** Recorre las reglas marcadas `asistida` y aplica el criterio de `verificacion`: las que se comprueben con una condición mecánica pasan a `automatica` con su `como_verificar` concreto. El aviso desaparece cuando al menos la mitad de las reglas de nomenclatura, uri, versionamiento, codigos-de-respuesta, cabeceras y paginacion son automáticas.
 4. **Otros.** Por cada regla en `otros.yaml`, decide si encaja en una categoría existente y muévela (cambia el archivo y el prefijo del id; conserva `fuente`). Las que de verdad no encajen, agrúpalas y propón al usuario un nombre de categoría nueva en el resumen; no la crees sin su acuerdo.

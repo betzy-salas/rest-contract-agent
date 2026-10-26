@@ -39,6 +39,7 @@ guidelines/.cache/<pageId>.md    copia local de trabajo, no se versiona
         │
         ▼  Etapa 2: el agente clasifica cada página y extrae sus reglas
 guidelines/rules/<categoria>.yaml        reglas verificables (id, texto fiel, alcance, cómo verificar, página fuente)
+guidelines/rules/esquemas-normativos.yaml esquemas que los lineamientos definen (error estándar, paginación, headers), con todos sus campos
 guidelines/rules/catalogo-esquemas.yaml  esquemas canónicos de dominio para reutilizar
 guidelines/rules/pages.yaml              registro: categoría de cada página y versión de la que se extrajo
         │
@@ -203,6 +204,7 @@ Las reglas y el catálogo **sí se versionan**: son el resultado valioso del pro
 guidelines/sources.yaml                    páginas y carpetas de Confluence con los lineamientos
 guidelines/sources.lock.json               última versión procesada (la genera guidelines:approve)
 guidelines/rules/<categoria>.yaml          reglas verificables por categoría
+guidelines/rules/esquemas-normativos.yaml  esquemas definidos por los lineamientos, campo a campo
 guidelines/rules/catalogo-esquemas.yaml    esquemas canónicos de dominio
 guidelines/rules/pages.yaml                registro de clasificación y versión de cada página
 guidelines/.cache/                         descarga local de trabajo (no se versiona)

@@ -2,7 +2,8 @@
 /**
  * Reglas verificables extraídas de los lineamientos (Etapa 2).
  *
- * El agente clasifica cada página descargada en una categoría, extrae sus reglas a guidelines/rules/<categoria>.yaml
+ * El agente clasifica cada página descargada en una categoría, extrae sus reglas a guidelines/rules/<categoria>.yaml,
+ * los esquemas que la página define (campos, tipos, obligatoriedad) a guidelines/rules/esquemas-normativos.yaml,
  * y registra con qué versión de la página lo hizo. Este script lleva ese registro y valida el resultado; nunca
  * escribe reglas por su cuenta.
  *
@@ -45,6 +46,8 @@ const APLICA_A = ['paths', 'operations', 'parameters', 'headers', 'request-body'
 const VERIFICACION = ['automatica', 'asistida', 'manual'];
 const ALCANCE = ['interna', 'externa'];
 const CATALOGO = 'catalogo-esquemas.yaml';
+const ESQUEMAS = 'esquemas-normativos.yaml';
+const TIPOS_CAMPO = ['string', 'integer', 'number', 'boolean', 'array', 'object', 'null'];
 
 const modo = process.argv[2];
 const args = process.argv.slice(3);
@@ -58,7 +61,7 @@ registro.pages ??= {};
 const guardarRegistro = () => escribirYaml(pagesPath, registro);
 
 const archivosReglas = () => fs.existsSync(dirReglas)
-  ? fs.readdirSync(dirReglas).filter(f => f.endsWith('.yaml') && f !== 'pages.yaml' && f !== CATALOGO).sort()
+  ? fs.readdirSync(dirReglas).filter(f => f.endsWith('.yaml') && f !== 'pages.yaml' && f !== CATALOGO && f !== ESQUEMAS).sort()
   : [];
 const leerReglas = archivo => {
   const datos = leerYaml(path.join(dirReglas, archivo), null);
@@ -72,19 +75,25 @@ const leerReglas = archivo => {
 // No mide calidad, mide huecos: una página con 20 enunciados normativos y 2 reglas casi seguro quedó resumida.
 const NORMATIVO = /\b(debe[nr]?[áa]?n?|deber[áa]n?|no debe[n]?|obligatori[oa]s?|siempre|nunca|prohibid[oa]s?|(no )?se permite[n]?|(no )?est[áa] permitid[oa]|recomendad[oa]s?|se recomienda|por defecto|requerid[oa]s?|mandatori[oa]s?|necesari[oa]s?|únicamente|solo se|solamente|must|should|shall|required|mandatory)\b/i;
 function medirNormativo(cuerpo) {
-  let enunciados = 0, filas = 0, enCodigo = false;
+  let enunciados = 0, filas = 0, tablas = 0, enCodigo = false, enTabla = false;
+  const claves = new Set();
   for (const l of cuerpo.split('\n')) {
     if (/^\s*```/.test(l)) { enCodigo = !enCodigo; continue; }
-    if (enCodigo) continue;
-    if (/^\s*\|/.test(l)) { if (!/^\s*\|[\s:|-]*\|\s*$/.test(l)) filas++; continue; }
+    if (enCodigo) { for (const m of l.matchAll(/"([A-Za-z_][\w.-]*)"\s*:/g)) claves.add(m[1]); continue; } // claves de ejemplos JSON
+    if (/^\s*\|/.test(l)) { if (!enTabla) { enTabla = true; tablas++; } if (!/^\s*\|[\s:|-]*\|\s*$/.test(l)) filas++; continue; }
+    enTabla = false;
     for (const frase of l.split(/(?<=[.;!?])\s+/)) if (NORMATIVO.test(frase)) enunciados++;
   }
-  return { enunciados, filas: Math.max(0, filas - 1) }; // -1 por la fila de encabezado de la primera tabla
+  // una fila de encabezado por tabla; las filas restantes suelen ser un campo o una regla cada una
+  return { enunciados, filas: Math.max(0, filas - tablas), clavesJson: claves.size };
 }
 function todasLasReglas() { const out = []; for (const a of archivosReglas()) for (const r of leerReglas(a)) out.push({ ...r, _archivo: a }); return out; }
+const leerEsquemas = () => { const d = leerYaml(path.join(dirReglas, ESQUEMAS), []); if (!Array.isArray(d)) salir(2, `${ESQUEMAS}: debe ser una lista`); return d; };
+const camposDe = e => Array.isArray(e?.campos) ? e.campos : [];
 function cobertura() {
-  const reglasPorPagina = new Map();
+  const reglasPorPagina = new Map(), camposPorPagina = new Map();
   for (const r of todasLasReglas()) { const k = String(r?.fuente?.pageId); reglasPorPagina.set(k, (reglasPorPagina.get(k) ?? 0) + 1); }
+  for (const e of leerEsquemas()) { const k = String(e?.fuente?.pageId); camposPorPagina.set(k, (camposPorPagina.get(k) ?? 0) + camposDe(e).length); }
   const revisar = [], excluidasConNormas = [], aceptadas = [], ok = [];
   for (const p of paginas) {
     const r = registro.pages[p.pageId];
@@ -92,9 +101,11 @@ function cobertura() {
     if (r.coverageAccepted) { aceptadas.push({ p, r }); continue; }
     const m = medirNormativo(p.cuerpo ?? '');
     if (r.category === 'fuera-de-alcance') { if (m.enunciados >= 3) excluidasConNormas.push({ p, m, r }); continue; }
-    const reglas = reglasPorPagina.get(p.pageId) ?? 0;
-    const esperado = Math.max(m.enunciados, Math.round(m.filas / 2));
-    if ((reglas === 0 && esperado > 0) || (esperado >= 4 && reglas * 2 < esperado)) revisar.push({ p, m, r, reglas, esperado, hueco: esperado - reglas });
+    const reglas = reglasPorPagina.get(p.pageId) ?? 0, campos = camposPorPagina.get(p.pageId) ?? 0;
+    // lo esperado: una regla por enunciado normativo, y un campo o regla por fila de tabla o por clave de ejemplo JSON
+    const esperado = m.enunciados + Math.max(m.filas, m.clavesJson);
+    const cubierto = reglas + campos;
+    if ((cubierto === 0 && esperado > 0) || (esperado >= 3 && cubierto < esperado * 0.8)) revisar.push({ p, m, r, reglas, campos, esperado, hueco: esperado - cubierto });
     else ok.push(p);
   }
   revisar.sort((a, b) => b.hueco - a.hueco);
@@ -113,8 +124,8 @@ function calidadVerificacion() {
 }
 const imprimirCobertura = ({ revisar, excluidasConNormas }) => {
   if (revisar.length) {
-    console.log('\nREVISAR COBERTURA · relee la página completa y agrega las reglas que falten (una por obligación, una por fila de tabla normativa). Si la página está bien así: npm run rules:accept -- <pageId> --razon "..."');
-    for (const x of revisar) console.log(`  [${x.p.space}] ${x.p.title} (id ${x.p.pageId}) · ${x.r.category} · ${x.reglas} reglas vs ${x.m.enunciados} enunciados normativos y ${x.m.filas} filas de tabla`);
+    console.log('\nREVISAR COBERTURA · relee la página completa. Obligaciones en prosa o en filas de tabla → reglas; tablas de campos (nombre, tipo, obligatorio) o ejemplos JSON → esquema normativo con TODOS sus campos. Si la página está bien así: npm run rules:accept -- <pageId> --razon "..."');
+    for (const x of revisar) console.log(`  [${x.p.space}] ${x.p.title} (id ${x.p.pageId}) · ${x.r.category} · ${x.reglas} reglas + ${x.campos} campos de esquema vs ${x.m.enunciados} enunciados normativos, ${x.m.filas} filas de tabla, ${x.m.clavesJson} claves en ejemplos JSON`);
   }
   if (excluidasConNormas.length) {
     console.log('\nEXCLUIDAS CON LENGUAJE NORMATIVO · relee y decide: rules:classify a una categoría y extrae, o rules:accept con la razón precisa de por qué no aplica:');
@@ -198,9 +209,11 @@ if (modo === 'forget') {
     const quedan = reglas.filter(r => String(r?.fuente?.pageId) !== pageId);
     if (quedan.length !== reglas.length) { borradas += reglas.length - quedan.length; escribirYaml(path.join(dirReglas, archivo), quedan); }
   }
-  const catalogo = leerYaml(path.join(dirReglas, CATALOGO), []);
-  const quedanCat = catalogo.filter(e => String(e?.fuente?.pageId) !== pageId);
-  if (quedanCat.length !== catalogo.length) { borradas += catalogo.length - quedanCat.length; escribirYaml(path.join(dirReglas, CATALOGO), quedanCat); }
+  for (const archivo of [CATALOGO, ESQUEMAS]) {
+    const lista = leerYaml(path.join(dirReglas, archivo), []);
+    const quedanL = lista.filter(e => String(e?.fuente?.pageId) !== pageId);
+    if (quedanL.length !== lista.length) { borradas += lista.length - quedanL.length; escribirYaml(path.join(dirReglas, archivo), quedanL); }
+  }
   const r = registro.pages[pageId];
   if (r) { if (porId.has(pageId)) { r.contentHash = null; delete r.coverageAccepted; } else delete registro.pages[pageId]; guardarRegistro(); }
   console.log(`Retiradas ${borradas} entradas de la página ${pageId}${porId.has(pageId) ? ' · queda pendiente de reextraer' : ' · registro eliminado'}`);
@@ -217,8 +230,8 @@ if (modo === 'done') {
     if (r.category === 'fuera-de-alcance') salir(2, `La página ${pageId} está fuera de alcance; no se extraen reglas`);
     const tiene = r.category === 'esquemas-de-dominio'
       ? leerYaml(path.join(dirReglas, CATALOGO), []).some(e => String(e?.fuente?.pageId) === pageId)
-      : archivosReglas().some(a => leerReglas(a).some(x => String(x?.fuente?.pageId) === pageId));
-    if (!tiene) salir(2, `La página ${pageId} (${r.category}) no tiene ninguna regla o entrada con fuente.pageId = "${pageId}". Si de verdad no contiene reglas, reclasifícala como fuera-de-alcance con la razón`);
+      : archivosReglas().some(a => leerReglas(a).some(x => String(x?.fuente?.pageId) === pageId)) || leerEsquemas().some(e => String(e?.fuente?.pageId) === pageId);
+    if (!tiene) salir(2, `La página ${pageId} (${r.category}) no tiene ninguna regla ni esquema con fuente.pageId = "${pageId}". Si de verdad no contiene reglas, reclasifícala como fuera-de-alcance con la razón`);
     r.contentHash = p.contentHash;
   }
   guardarRegistro();
@@ -268,12 +281,36 @@ if (modo === 'validate') {
     else if (!porId.has(pid)) errores.push(`${donde}: fuente.pageId ${pid} ya no está en la caché`);
     else if (registro.pages[pid]?.category !== 'esquemas-de-dominio') errores.push(`${donde}: la página ${pid} no está clasificada como esquemas-de-dominio`);
   });
+  const esquemas = leerEsquemas();
+  const nombresEsq = new Set();
+  esquemas.forEach((e, i) => {
+    const donde = `${ESQUEMAS}[${i}]${e?.nombre ? ' ' + e.nombre : ''}`;
+    if (!e?.nombre || !/^[A-Z][A-Za-z0-9]*$/.test(String(e.nombre))) errores.push(`${donde}: "nombre" debe ser un identificador PascalCase (ej. Error, PageInfo)`);
+    else if (nombresEsq.has(e.nombre)) errores.push(`${donde}: nombre repetido`); else nombresEsq.add(e.nombre);
+    if (!e?.uso || String(e.uso).trim().length < 10) errores.push(`${donde}: "uso" vacío (cuándo y dónde se emplea este esquema en un contrato)`);
+    if (!Array.isArray(e?.alcance) || !e.alcance.length || e.alcance.some(a => !ALCANCE.includes(a))) errores.push(`${donde}: "alcance" debe ser una lista con interna y/o externa`);
+    const campos = camposDe(e);
+    if (!campos.length) errores.push(`${donde}: "campos" vacío`);
+    const vistos = new Set();
+    campos.forEach((c, j) => {
+      const d2 = `${donde}.campos[${j}]${c?.nombre ? ' ' + c.nombre : ''}`;
+      if (!c?.nombre) errores.push(`${d2}: falta "nombre"`); else if (vistos.has(c.nombre)) errores.push(`${d2}: campo repetido`); else vistos.add(c.nombre);
+      if (!TIPOS_CAMPO.includes(c?.tipo)) errores.push(`${d2}: "tipo" debe ser uno de ${TIPOS_CAMPO.join(', ')}`);
+      if (typeof c?.obligatorio !== 'boolean') errores.push(`${d2}: "obligatorio" debe ser true o false (si la página no lo dice, false y anótalo en descripcion)`);
+      if (!c?.descripcion || String(c.descripcion).trim().length < 5) errores.push(`${d2}: falta "descripcion"`);
+      if (c?.valores != null && !Array.isArray(c.valores)) errores.push(`${d2}: "valores" debe ser una lista`);
+    });
+    const pid = e?.fuente?.pageId != null ? String(e.fuente.pageId) : null;
+    if (!pid) errores.push(`${donde}: falta fuente.pageId`);
+    else if (!porId.has(pid)) errores.push(`${donde}: fuente.pageId ${pid} ya no está en la caché; ejecuta rules.mjs forget ${pid}`);
+    else if (!registro.pages[pid]?.category || ['fuera-de-alcance', 'esquemas-de-dominio'].includes(registro.pages[pid].category)) errores.push(`${donde}: la página fuente ${pid} debe estar clasificada en una categoría de reglas (los esquemas de dominio van al catálogo)`);
+  });
   for (const [id, r] of Object.entries(registro.pages)) {
     if (!CATEGORIAS[r.category]) errores.push(`pages.yaml ${id}: categoría desconocida ${r.category}`);
     if (r.category === 'fuera-de-alcance' && !r.reason) errores.push(`pages.yaml ${id}: fuera-de-alcance sin razón`);
   }
   if (errores.length) salir(2, `${errores.length} problema(s) en guidelines/rules:\n` + errores.map(e => '  - ' + e).join('\n'));
-  console.log(`Reglas válidas: ${ids.size} reglas en ${archivosReglas().length} categorías · ${catalogo.length} esquemas en el catálogo`);
+  console.log(`Reglas válidas: ${ids.size} reglas en ${archivosReglas().length} categorías · ${esquemas.length} esquemas normativos con ${esquemas.reduce((n, e) => n + camposDe(e).length, 0)} campos · ${catalogo.length} esquemas en el catálogo de dominio`);
   process.exit(0);
 }
 
@@ -294,6 +331,8 @@ if (modo === 'summary') {
   const catalogo = leerYaml(path.join(dirReglas, CATALOGO), []);
   console.log(`${total} reglas · ${porVerif.automatica} automáticas · ${porVerif.asistida} asistidas · ${porVerif.manual} manuales · alcance: ${porAlcance.ambas} ambas, ${porAlcance.interna} solo interna, ${porAlcance.externa} solo externa`);
   for (const [c, n] of [...porCat].sort((a, b) => b[1] - a[1])) console.log(`  ${String(n).padStart(4)}  ${c}`);
+  const esquemas = leerEsquemas();
+  console.log(`${esquemas.length} esquemas normativos (${esquemas.reduce((n, e) => n + camposDe(e).length, 0)} campos): ${esquemas.map(e => e.nombre).join(', ') || 'ninguno'}`);
   console.log(`${catalogo.length} esquemas en el catálogo de dominio`);
   const excluidas = Object.entries(registro.pages).filter(([, r]) => r.category === 'fuera-de-alcance');
   console.log(`\n${excluidas.length} páginas fuera de alcance (confirma que ninguna contiene reglas de contrato REST):`);
