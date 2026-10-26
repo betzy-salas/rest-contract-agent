@@ -12,6 +12,8 @@
  *   node scripts/rules.mjs done <pageId> [<pageId>...]     marca la(s) página(s) como extraída(s) con su versión actual
  *   node scripts/rules.mjs validate                        valida estructura, ids y fuentes de todas las reglas
  *   node scripts/rules.mjs summary                         resumen por categoría, alcance y verificación; páginas excluidas
+ *   node scripts/rules.mjs coverage                        por página: reglas extraídas vs. enunciados normativos del texto;
+ *                                                          señala subextracción y páginas excluidas que contienen normas
  *
  * Códigos de salida: status 0 = todo al día, 1 = hay pendientes · validate 0 = ok, 2 = errores · resto 0 ok, 2 error
  */
@@ -46,9 +48,9 @@ const CATALOGO = 'catalogo-esquemas.yaml';
 const modo = process.argv[2];
 const args = process.argv.slice(3);
 const usos = Object.keys(CATEGORIAS).join(' | ');
-if (!['status', 'classify', 'forget', 'done', 'validate', 'summary'].includes(modo)) salir(2, 'Uso: node scripts/rules.mjs <status|classify|forget|done|validate|summary>');
+if (!['status', 'classify', 'forget', 'done', 'validate', 'summary', 'coverage'].includes(modo)) salir(2, 'Uso: node scripts/rules.mjs <status|classify|forget|done|validate|summary|coverage>');
 
-const paginas = leerCache();
+const paginas = leerCache({ conCuerpo: modo === 'coverage' });
 const porId = new Map(paginas.map(p => [p.pageId, p]));
 const registro = leerYaml(pagesPath, { pages: {} });
 registro.pages ??= {};
@@ -216,5 +218,56 @@ if (modo === 'summary') {
   for (const [id, r] of excluidas.sort((a, b) => (a[1].reason ?? '').localeCompare(b[1].reason ?? ''))) console.log(`  - [${r.space}] ${r.title} (id ${id}) · ${r.reason}`);
   const otros = porCat.get('otros') ?? 0;
   if (otros) console.log(`\n${otros} reglas en "otros": revisa si merecen una categoría propia.`);
+  if (total >= 20 && porVerif.automatica === 0) console.log('\nAVISO: ninguna regla es automática. Es muy improbable: nombres, versión en el path, códigos por método o formato de headers se comprueban mecánicamente. Ejecuta el paso de calidad (rules:coverage) y reclasifica.');
   process.exit(0);
+}
+
+// ---------- coverage ----------
+if (modo === 'coverage') {
+  // Heurística: cuenta las líneas del texto con lenguaje normativo y las filas de tabla, y las compara con las reglas extraídas.
+  // No mide calidad, mide huecos: una página con 20 enunciados normativos y 2 reglas casi seguro quedó resumida.
+  const NORMATIVO = /\b(debe[nr]?[áa]?n?|deber[áa]n?|no debe[n]?|obligatori[oa]s?|siempre|nunca|prohibid[oa]s?|(no )?se permite[n]?|(no )?est[áa] permitid[oa]|recomendad[oa]s?|se recomienda|por defecto|requerid[oa]s?|mandatori[oa]s?|necesari[oa]s?|únicamente|solo se|solamente|must|should|shall|required|mandatory)\b/i;
+  const medir = cuerpo => {
+    const lineas = cuerpo.split('\n');
+    let enunciados = 0, filas = 0, enCodigo = false;
+    for (const l of lineas) {
+      if (/^\s*```/.test(l)) { enCodigo = !enCodigo; continue; }
+      if (enCodigo) continue;
+      if (/^\s*\|/.test(l)) { if (!/^\s*\|[\s:|-]*\|\s*$/.test(l)) filas++; continue; }
+      for (const frase of l.split(/(?<=[.;!?])\s+/)) if (NORMATIVO.test(frase)) enunciados++;
+    }
+    return { enunciados, filas: Math.max(0, filas - 1) }; // -1 por la fila de encabezado de la primera tabla
+  };
+  const reglasPorPagina = new Map();
+  for (const archivo of archivosReglas()) for (const r of leerReglas(archivo)) { const k = String(r?.fuente?.pageId); reglasPorPagina.set(k, (reglasPorPagina.get(k) ?? 0) + 1); }
+  const catalogoPorPagina = new Map();
+  for (const e of leerYaml(path.join(dirReglas, CATALOGO), [])) { const k = String(e?.fuente?.pageId); catalogoPorPagina.set(k, (catalogoPorPagina.get(k) ?? 0) + 1); }
+  const revisar = [], excluidasConNormas = [], ok = [];
+  for (const p of paginas) {
+    const r = registro.pages[p.pageId];
+    if (!r?.category) continue;
+    const m = medir(p.cuerpo);
+    if (r.category === 'fuera-de-alcance') {
+      if (m.enunciados >= 3) excluidasConNormas.push({ p, m, r });
+      continue;
+    }
+    if (r.category === 'esquemas-de-dominio') continue;
+    const reglas = reglasPorPagina.get(p.pageId) ?? 0;
+    const esperado = Math.max(m.enunciados, Math.round(m.filas / 2));
+    const hueco = esperado - reglas;
+    if ((reglas === 0 && esperado > 0) || (esperado >= 4 && reglas * 2 < esperado)) revisar.push({ p, m, r, reglas, esperado, hueco });
+    else ok.push(p);
+  }
+  revisar.sort((a, b) => b.hueco - a.hueco);
+  console.log(`Cobertura: ${revisar.length} páginas con posible subextracción · ${excluidasConNormas.length} excluidas con lenguaje normativo · ${ok.length} sin señal`);
+  if (revisar.length) {
+    console.log('\nREVISAR · relee la página completa y agrega las reglas que falten (una por obligación, una por fila de tabla normativa):');
+    for (const x of revisar) console.log(`  [${x.p.space}] ${x.p.title} (id ${x.p.pageId}) · ${x.r.category} · ${x.reglas} reglas vs ${x.m.enunciados} enunciados normativos y ${x.m.filas} filas de tabla`);
+  }
+  if (excluidasConNormas.length) {
+    console.log('\nEXCLUIDAS CON LENGUAJE NORMATIVO · relee y decide: reclasificar a una categoría, o confirmar la exclusión con una razón más precisa:');
+    for (const x of excluidasConNormas) console.log(`  [${x.p.space}] ${x.p.title} (id ${x.p.pageId}) · ${x.m.enunciados} enunciados normativos · razón actual: ${x.r.reason}`);
+  }
+  console.log('\nEs una heurística: una página puede tener lenguaje normativo sin reglas de contrato (por ejemplo, instrucciones de proceso). Lo que no debe pasar es que una página con muchas obligaciones tenga dos reglas.');
+  process.exit(revisar.length + excluidasConNormas.length ? 1 : 0);
 }

@@ -12,7 +12,8 @@
     "rules:forget": "node scripts/rules.mjs forget",
     "rules:done": "node scripts/rules.mjs done",
     "rules:validate": "node scripts/rules.mjs validate",
-    "rules:summary": "node scripts/rules.mjs summary"
+    "rules:summary": "node scripts/rules.mjs summary",
+    "rules:coverage": "node scripts/rules.mjs coverage"
   },
   "dependencies": {
     "turndown": "^7.2.0",

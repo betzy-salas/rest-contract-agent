@@ -159,6 +159,7 @@ npm run guidelines:check     # 0 vigentes · 1 cambios · 2 error
 npm run rules:status         # qué páginas faltan por clasificar, extraer o reextraer · 0 al día · 1 pendientes
 npm run rules:validate       # estructura, ids y fuentes de las reglas · 0 ok · 2 errores
 npm run rules:summary        # reglas por categoría y verificación; páginas fuera de alcance
+npm run rules:coverage       # por página, reglas extraídas vs. enunciados normativos del texto: detecta subextracción
 ```
 
 ### Formato de una regla

@@ -129,13 +129,19 @@ Por cada página POR EXTRAER (y por cada CAMBIADA, tras ejecutar `npm run rules:
      regla: "Los nombres de recursos van en plural, en inglés y en kebab-case."   # fiel al texto de la página
      alcance: [interna, externa]      # interna, externa o ambas, según a qué APIs aplica la página
      aplica_a: paths                  # paths | operations | parameters | headers | request-body | responses | schemas | security | info | naming | general
-     verificacion: automatica         # automatica: se comprueba con una regla mecánica sobre el contrato · asistida: se comprueba leyendo el contrato con criterio · manual: requiere contexto fuera del contrato
+     verificacion: automatica         # ver criterio abajo
      como_verificar: "Cada segmento de path que no sea parámetro está en plural, en inglés y solo contiene minúsculas y guiones."
      ejemplo: "/customers/{customerId}/accounts"      # opcional, tomado de la página
      fuente: { pageId: "123456", titulo: "Nomenclatura de Recursos", url: "https://..." }
    ```
 
    Prefijos: NOM, URI, OPE, HDR, PAR, PAG, STA, ERR, MSG, TIP, VER, SEG, DOC, PAT, OTR. Para numerar, mira el último id del archivo.
+
+   **Criterio de `verificacion`.** Pregúntate: ¿se puede comprobar con una condición mecánica sobre el documento OpenAPI, sin entender el negocio?
+   - `automatica`: sí. Expresión regular sobre paths o nombres (`kebab-case`, plural, `/v[0-9]+/`), presencia o ausencia de un campo (`operationId`, `description`, header `X-Request-Id`), valor dentro de una lista cerrada (códigos permitidos por método, formatos de fecha), tipo o formato de un schema, que las respuestas 4xx referencien el esquema de error. Escribe `como_verificar` como esa condición concreta. La mayoría de reglas de nomenclatura, URI, versionamiento, códigos, cabeceras y paginación son automáticas.
+   - `asistida`: requiere leer el contrato con criterio pero toda la información está en él. Ejemplo: "la descripción del endpoint explica el caso de uso", "el recurso representa un sustantivo de negocio y no una acción".
+   - `manual`: requiere información que no está en el contrato. Ejemplo: "el API está registrado en el catálogo corporativo".
+   Si dudas entre automática y asistida, elige automática y escribe la condición: es más barato de verificar y más fiable.
 4. Si la categoría es `esquemas-de-dominio`, en lugar de reglas agrega una entrada a `guidelines/rules/catalogo-esquemas.yaml`:
 
    ```yaml
@@ -151,10 +157,21 @@ Para cada página ELIMINADA ejecuta `npm run rules:forget -- <pageId>` y dile al
 
 ### 2.4 Validar
 
-Ejecuta `npm run rules:validate`. Corrige cada problema que reporte (ids repetidos, campos faltantes, categoría que no coincide) y repite hasta código 0. Luego ejecuta `npm run guidelines:approve` para registrar que las reglas corresponden a esta versión de los lineamientos.
+Ejecuta `npm run rules:validate`. Corrige cada problema que reporte (ids repetidos, campos faltantes, categoría que no coincide) y repite hasta código 0.
 
-### 2.5 Resumir
+### 2.5 Control de calidad
 
-Ejecuta `npm run rules:summary` y muestra al usuario la salida completa: cuántas reglas por categoría y tipo de verificación, cuántos esquemas en el catálogo, y la lista de páginas fuera de alcance con su razón. Pídele que confirme que ninguna página excluida contiene reglas de contrato y que revise las reglas en `otros`. Si hubo páginas CAMBIADAS, resume qué reglas aparecieron, cambiaron o se retiraron.
+Se ejecuta siempre, aunque el estado fuera AL DÍA, porque mide la extracción ya hecha.
+
+1. **Cobertura.** Ejecuta `npm run rules:coverage`. Por cada página en REVISAR: relee `guidelines/.cache/<pageId>.md` completo, compara con las reglas que ya tiene (busca su `pageId` en `fuente`) y agrega las obligaciones que faltan, una por enunciado normativo y una por fila de tabla normativa. Por cada página en EXCLUIDAS CON LENGUAJE NORMATIVO: reléela; si contiene reglas de contrato, reclasifícala con `rules:classify` y extráelas; si no, confirma la exclusión con una razón más precisa que "introducción" (qué contiene y por qué no aplica). Repite hasta que el comando no señale nada o lo que señale esté justificado; en ese caso dilo en el resumen.
+2. **Verificación.** Recorre las reglas marcadas `asistida` y aplica el criterio de `verificacion`: las que se comprueben con una condición mecánica pasan a `automatica` con su `como_verificar` concreto. Si al terminar menos de la mitad de las reglas de nomenclatura, uri, versionamiento, codigos-de-respuesta, cabeceras y paginacion son automáticas, revisa de nuevo.
+3. **Otros.** Por cada regla en `otros.yaml`, decide si encaja en una categoría existente y muévela (cambia el archivo y el prefijo del id; conserva `fuente`). Las que de verdad no encajen, agrúpalas y propón al usuario un nombre de categoría nueva en el resumen; no la crees sin su acuerdo.
+4. **Alcance.** Las reglas extraídas de páginas del árbol "APIs REST de Uso Externo" tienen `alcance: [externa]` salvo que la página diga que aplican a todas; las de taxonomía interna, `[interna]`.
+
+Después vuelve a ejecutar `npm run rules:validate` hasta código 0 y luego `npm run guidelines:approve` para registrar que las reglas corresponden a esta versión de los lineamientos.
+
+### 2.6 Resumir
+
+Ejecuta `npm run rules:summary` y muestra al usuario la salida completa: cuántas reglas por categoría y tipo de verificación, cuántos esquemas en el catálogo, y la lista de páginas fuera de alcance con su razón. Añade la salida de `npm run rules:coverage` si todavía señala algo, con la justificación. Pídele que confirme que ninguna página excluida contiene reglas de contrato, y preséntale las categorías nuevas que propones para `otros`. Si hubo páginas CAMBIADAS, resume qué reglas aparecieron, cambiaron o se retiraron.
 
 Después de la Etapa 2, continúa con la siguiente etapa activa. Si no hay ninguna, termina e indica hasta dónde llegaste.
