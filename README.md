@@ -18,7 +18,7 @@ Agente de GitHub Copilot que genera contratos **OpenAPI 3** a partir de los **li
 
 **Tú, una sola vez:** instalas el proyecto, conectas Confluence y escribes en `guidelines/sources.yaml` las páginas o carpetas con los lineamientos. Está paso a paso en "Puesta en marcha".
 
-**Tú, cada vez que quieras algo:** escribes un prompt en el chat de Copilot (`/sync`, `/rules`, o más adelante "genera el contrato para este mapeo"). Nada más. No ejecutas scripts a mano.
+**Tú, cada vez que quieras algo:** escribes un prompt en el chat de Copilot (`/sync-guidelines`, `/extract-rules`, o más adelante "genera el contrato para este mapeo"). Nada más. No ejecutas scripts a mano.
 
 **El agente, en cada tarea:** descarga los lineamientos, detecta si cambiaron, actualiza las reglas afectadas, valida y te muestra un resumen. Si algo falla te dice qué pasó y qué hacer; si una página no le aplica a contratos REST, te lo dice con la razón. Nunca modifica nada en Confluence ni lee tus credenciales.
 
@@ -64,8 +64,8 @@ Esto se ejecuta **al inicio de cada tarea**. Si una página de Confluence cambi�
    ```
 2. **Conecta Confluence.** Crea el archivo `.env` con tus credenciales siguiendo la sección siguiente. Ese archivo nunca se sube al repo.
 3. **Indica dónde están los lineamientos.** Edita `guidelines/sources.yaml` con las URLs reales de tus carpetas o páginas de Confluence (ver "Configurar las fuentes").
-4. **Comprueba la conexión.** Abre el proyecto en el IDE, chat de Copilot en modo **Agent**, y escribe `/sync`. El agente descarga los lineamientos y te dice cuántas páginas leyó de cada carpeta. Si algo falla, te explica la causa y qué hacer; la tabla de "Problemas frecuentes" tiene el detalle.
-5. **Primera extracción de reglas.** En el mismo chat escribe `/rules`. La primera vez procesa todas las páginas y tarda; el agente avisa el avance. Al terminar revisa el resumen: páginas fuera de alcance y reglas en "otros".
+4. **Comprueba la conexión.** Abre el proyecto en el IDE, chat de Copilot en modo **Agent**, y escribe `/sync-guidelines`. El agente descarga los lineamientos y te dice cuántas páginas leyó de cada carpeta. Si algo falla, te explica la causa y qué hacer; la tabla de "Problemas frecuentes" tiene el detalle.
+5. **Primera extracción de reglas.** En el mismo chat escribe `/extract-rules`. La primera vez procesa todas las páginas y tarda; el agente avisa el avance. Al terminar revisa el resumen: páginas fuera de alcance y reglas en "otros".
 
 Desde aquí, todo se hace con prompts en el chat de Copilot. Si en algún momento Copilot no está disponible, los mismos pasos se pueden correr en la terminal con los comandos `npm run` de la sección "Uso".
 
@@ -100,7 +100,7 @@ CONFLUENCE_COOKIE=cloud.session.token=...; tenant.session.token=...; (todo el va
 
 La cookie da acceso a Confluence como tú. Trátala como una contraseña: no la compartas, no la pegues en el chat de Copilot ni en ningún archivo del repo. Si usas las dos opciones a la vez, el script prefiere el token.
 
-**Comprobar:** escribe `/sync` en el chat de Copilot (o `npm run guidelines:sync` en la terminal). Debe terminar con `Descargadas N páginas`.
+**Comprobar:** escribe `/sync-guidelines` en el chat de Copilot (o `npm run guidelines:sync` en la terminal). Debe terminar con `Descargadas N páginas`.
 
 ### Red corporativa
 
@@ -142,8 +142,8 @@ Todo se hace desde el chat de Copilot, modo **Agent**. Escribes uno de estos pro
 
 | Prompt | Qué hace |
 |---|---|
-| `/sync` | Solo Etapa 1: descarga y reporta si los lineamientos cambiaron |
-| `/rules` | Etapas 1 y 2: descarga y actualiza las reglas en `guidelines/rules/` |
+| `/sync-guidelines` | Solo Etapa 1: descarga y reporta si los lineamientos cambiaron |
+| `/extract-rules` | Etapas 1 y 2: descarga y actualiza las reglas en `guidelines/rules/` |
 
 La primera extracción procesa todas las páginas y puede tardar; el agente avisa el avance por lotes. Las siguientes solo tocan las páginas que cambiaron.
 
@@ -195,8 +195,8 @@ Las reglas y el catálogo **sí se versionan**: son el resultado valioso del pro
 
 ```
 .github/agents/rest-contract.agent.md      agente (Etapas 1 y 2 activas)
-.github/prompts/sync.prompt.md  /sync
-.github/prompts/rules.prompt.md    /rules
+.github/prompts/sync-guidelines.prompt.md  /sync
+.github/prompts/extract-rules.prompt.md    /rules
 .github/CODEOWNERS                         opcional: revisión de cambios en guidelines/ por un equipo
 guidelines/sources.yaml                    páginas y carpetas de Confluence con los lineamientos
 guidelines/sources.lock.json               última versión procesada (la genera guidelines:approve)
