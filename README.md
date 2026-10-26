@@ -64,14 +64,10 @@ Esto se ejecuta **al inicio de cada tarea**. Si una página de Confluence cambi�
    ```
 2. **Conecta Confluence.** Crea el archivo `.env` con tus credenciales siguiendo la sección siguiente. Ese archivo nunca se sube al repo.
 3. **Indica dónde están los lineamientos.** Edita `guidelines/sources.yaml` con las URLs reales de tus carpetas o páginas de Confluence (ver "Configurar las fuentes").
-4. **Comprueba la conexión.** En la terminal:
-   ```
-   npm run guidelines:sync
-   ```
-   Debe terminar con `Descargadas N páginas`. Si falla, el mensaje te dice la causa; la tabla de "Problemas frecuentes" la traduce a una acción.
-5. **Primera extracción de reglas.** Abre el proyecto en el IDE, chat de Copilot en modo **Agent**, y escribe `/rules`. La primera vez procesa todas las páginas y tarda; el agente avisa el avance. Al terminar revisa el resumen: páginas fuera de alcance y reglas en "otros".
+4. **Comprueba la conexión.** Abre el proyecto en el IDE, chat de Copilot en modo **Agent**, y escribe `/sync`. El agente descarga los lineamientos y te dice cuántas páginas leyó de cada carpeta. Si algo falla, te explica la causa y qué hacer; la tabla de "Problemas frecuentes" tiene el detalle.
+5. **Primera extracción de reglas.** En el mismo chat escribe `/rules`. La primera vez procesa todas las páginas y tarda; el agente avisa el avance. Al terminar revisa el resumen: páginas fuera de alcance y reglas en "otros".
 
-A partir de aquí todo se hace desde el chat de Copilot.
+Desde aquí, todo se hace con prompts en el chat de Copilot. Si en algún momento Copilot no está disponible, los mismos pasos se pueden correr en la terminal con los comandos `npm run` de la sección "Uso".
 
 ## Conectar Confluence (una vez por desarrollador)
 
@@ -104,7 +100,7 @@ CONFLUENCE_COOKIE=cloud.session.token=...; tenant.session.token=...; (todo el va
 
 La cookie da acceso a Confluence como tú. Trátala como una contraseña: no la compartas, no la pegues en el chat de Copilot ni en ningún archivo del repo. Si usas las dos opciones a la vez, el script prefiere el token.
 
-**Comprobar:** en la terminal, `npm run guidelines:sync` debe terminar con `Descargadas N páginas`.
+**Comprobar:** escribe `/sync` en el chat de Copilot (o `npm run guidelines:sync` en la terminal). Debe terminar con `Descargadas N páginas`.
 
 ### Red corporativa
 
